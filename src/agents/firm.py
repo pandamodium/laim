@@ -28,6 +28,7 @@ class FirmState:
     accumulated_r_and_d: float = 0.0
     ai_productivity: float = 1.5
     human_productivity: float = 1.0
+    entry_period: int = 0  # Period when firm entered market (for age tracking)
 
 
 class Firm(Agent):
@@ -37,7 +38,8 @@ class Firm(Agent):
         self,
         firm_id: int,
         config: SimulationConfig,
-        initial_capital: float = 50000.0
+        initial_capital: float = 50000.0,
+        entry_period: int = 0
     ):
         """Initialize firm.
         
@@ -45,10 +47,11 @@ class Firm(Agent):
             firm_id: Unique firm identifier
             config: Simulation configuration
             initial_capital: Starting capital/wealth
+            entry_period: Period when firm entered (for tracking cohorts)
         """
         super().__init__(agent_id=firm_id, agent_type="firm")
         self.config = config
-        self.state = FirmState(capital=initial_capital)
+        self.state = FirmState(capital=initial_capital, entry_period=entry_period)
         self.productivity_draw = np.random.normal(loc=1.0, scale=0.1)
         self.history: List[Dict] = []
     

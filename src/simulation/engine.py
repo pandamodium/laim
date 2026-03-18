@@ -38,13 +38,17 @@ class SimulationEngine:
         self.total_output = 0.0
         self.unemployment_rate = 0.0
         
+        # Business formation tracking
+        self.next_firm_id = config.num_firms  # ID counter for new firms
+        self.firms_entered_this_period = 0
+        
         self._initialize_agents()
     
     def _initialize_agents(self) -> None:
         """Initialize firms and workers."""
         # Create firms
         for i in range(self.config.num_firms):
-            self.firms[i] = Firm(i, self.config)
+            self.firms[i] = Firm(i, self.config, entry_period=0)
             logger.debug(f"Created firm {i}")
         
         # Create workers - distribute between employed and unemployed
@@ -140,6 +144,79 @@ class SimulationEngine:
                     self.config
                 )
     
+    def _process_entrepreneurship_and_entry(self) -> int:
+        """Process entrepreneurship decisions and create new firms.
+        
+        Logic:
+        1. Identify entrepreneurs (workers with status == ENTREPRENEUR)
+        2. For each, evaluate whether entry succeeds (stochastic)
+        3. If entry succeeds:
+           - Create new firm with random productivity
+           - Employ entrepreneur with that firm
+           - Initialize firm with small workforce
+        4. Return count of successful entries
+        
+        Returns:
+            Number of new firms entered
+        """
+        new_firms_count = 0
+        entrepreneurs = [
+            (wid, w) for wid, w in self.workers.items()
+            if w.state.status == WorkerStatus.ENTREPRENEUR
+        ]
+        
+        for worker_id, worker in entrepreneurs:
+            # Entry probability: base rate × market conditions
+            # Market saturation effect: fewer firms → easier entry
+            market_saturation = len(self.firms) / max(5, self.config.num_firms + 10)
+            saturation_factor = 1.0 - min(0.5, 0.5 * market_saturation)
+            
+            entry_prob = saturation_factor  # Stochastic entry (simplified)
+            
+            if np.random.random() < entry_prob and new_firms_count < 2:  # Cap entries to avoid cascading
+                # Create new firm
+                new_firm_id = self.next_firm_id
+                self.next_firm_id += 1
+                
+                # Productivity draw for new firm: slightly lower than average incumbent
+                avg_incumbent_productivity = np.mean([
+                    f.state.accumulated_r_and_d for f in self.firms.values()
+                ]) if self.firms else 0.0
+                
+                new_productivity = max(
+                    0.0,
+                    avg_incumbent_productivity + np.random.normal(0, 0.1 * max(0.5, avg_incumbent_productivity))
+                )
+                
+                new_firm = Firm(new_firm_id, self.config, entry_period=self.period)
+                new_firm.state.accumulated_r_and_d = new_productivity
+                
+                # Employ entrepreneur with new firm
+                worker.state.status = WorkerStatus.EMPLOYED
+                worker.state.current_firm = new_firm_id
+                worker.state.current_wage = self.market_wage_human
+                worker.state.accumulated_savings = 0  # Capital used
+                new_firm.state.human_workers_employed = 1  # Entrepreneur counts as employee
+                
+                # Add to active firms
+                self.firms[new_firm_id] = new_firm
+                new_firms_count += 1
+                
+                logger.debug(
+                    f"New firm {new_firm_id} entered with entrepreneur {worker_id} "
+                    f"(productivity: {new_productivity:.3f})"
+                )
+        
+        # Reset entrepreneur status for failed entrants (back to unemployed? or employed elsewhere?)
+        for worker_id, worker in entrepreneurs:
+            if worker.state.status == WorkerStatus.ENTREPRENEUR:
+                # Entry failed - return to unemployed
+                worker.state.status = WorkerStatus.UNEMPLOYED
+                worker.state.unemployment_duration = 0
+                logger.debug(f"Entrepreneurship attempt by {worker_id} failed, returning to unemployment")
+        
+        return new_firms_count
+    
     def step(self) -> None:
         """Execute one complete period of simulation.
         
@@ -224,7 +301,10 @@ class SimulationEngine:
             logger.debug(f"Firm {fid} exiting market")
             del self.firms[fid]
         
-        # 11. Collect metrics
+        # 11. Process entrepreneurship and new firm entry
+        self.firms_entered_this_period = self._process_entrepreneurship_and_entry()
+        
+        # 12. Collect metrics
         employed_human = sum(
             f.state.human_workers_employed for f in self.firms.values()
         )
@@ -250,7 +330,7 @@ class SimulationEngine:
             total_profit=total_profit,
             job_vacancies=total_vacancies,
             job_matches=len(matches),
-            new_firms_entered=0,  # Set to 0 for Phase 2 (will implement in Phase 4)
+            new_firms_entered=self.firms_entered_this_period,
             firms_exited=len(firms_to_remove),
             avg_firm_size=employed_human / max(1, len(self.firms)) if self.firms else 0
         )

@@ -137,7 +137,11 @@ class Worker(Agent):
         else:
             base_rate = self.config.base_entrepreneurship_rate
         
+        # Clamp base_rate to [0, 1] to avoid complex numbers in period conversion
+        base_rate = min(1.0, base_rate)
+        
         # Convert annual rate to period rate (monthly)
+        # Formula: period_rate = 1 - (1 - annual_rate)^(1/12)
         period_rate = 1.0 - (1.0 - base_rate) ** (1.0 / 12.0)
         
         # Stochastic draw
