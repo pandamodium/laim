@@ -288,8 +288,11 @@ class SimulationEngine:
             total_profit += profit
             total_vacancies += firm.state.job_openings_human
             
-            # R&D decision
-            firm.make_r_and_d_decision()
+            # R&D decision (Phase 4: pass period for lag tracking)
+            firm.make_r_and_d_decision(current_period=self.period)
+            
+            # Apply lagged R&D benefits (Phase 4: benefits from 2+ periods ago)
+            firm.apply_lagged_r_and_d_benefits(current_period=self.period)
         
         # 10. Process firm exits (and entry handled in business formation)
         firms_to_remove = [

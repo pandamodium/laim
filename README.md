@@ -2,7 +2,7 @@
 
 An agentic framework for analyzing the macroeconomic impact of AI on labor markets through agent-based modeling. The simulation examines how oligopolistic firms, human workers, and AI agents interact in a dynamic labor market with endogenous business formation.
 
-**Status**: ✅ Phase 2 Complete - Full Simulation Engine Operational (40/40 tests passing)
+**Status**: ✅ Phase 5 Complete — 81/81 tests passing
 
 ## Features
 
@@ -10,8 +10,10 @@ An agentic framework for analyzing the macroeconomic impact of AI on labor marke
 - **Oligopolistic Competition**: 3 firms (configurable) with dynamic pricing
 - **Labor Market Matching**: Micro-founded job search with Cobb-Douglas matching function
 - **Wage Dynamics**: Phillips curve adjustment responding to unemployment and AI share
-- **Comprehensive Metrics**: Track hiring, unemployment, job openings, wages, firm dynamics
-- **Extensible Framework**: Ready for business formation, heterogeneity, policy analysis
+- **AI Adoption**: Endogenous R&D investment with 2-period lagged benefits and technology diffusion
+- **Business Formation**: Entrepreneurship system with worker-to-firm transitions
+- **Comprehensive Metrics**: Track hiring, unemployment, job openings, wages, firm dynamics, R&D pipelines
+- **Extensible Framework**: Ready for policy analysis, international trade, inequality studies
 
 ## Quick Start
 
@@ -34,26 +36,19 @@ print(f"Final wage: ${results['avg_wage_human'].iloc[-1]:.2f}")
 ```
 ai_labor_market/
 ├── src/
-│   ├── agents/           
-│   │   ├── firm.py       [✓ CES production, profit, R&D]
-│   │   ├── worker.py     [✓ Job search, entrepreneurship]
-│   │   └── ai_agent.py   [✓ Pooled AI tracking]
-│   ├── market/           
-│   │   ├── job_market.py [✓ Job posting & matching]
-│   │   ├── matching.py   [✓ Cobb-Douglas matching]
-│   │   └── wage_dynamics.py [✓ Phillips curve]
-│   ├── simulation/
-│   │   └── engine.py     [✓ Full orchestration, 12-step cycle]
-│   ├── analytics/
-│   │   ├── metrics.py    [✓ Results tracking]
-│   │   └── visualization.py [In progress]
-│   └── config/
-│       └── parameters.py [✓ 50+ validated parameters]
-├── tests/                [✓ 40/40 passing (Phase 1+2)]
-├── outputs/              # Results, visualizations
-├── PHASE1_SUMMARY.md     # Core agents complete
-├── PHASE2_SUMMARY.md     # Market mechanics complete
-├── IMPLEMENTATION_PLAN.md # 50-page architecture reference
+│   ├── agents/           # Firm, Worker, AI agents
+│   ├── market/           # Job market, matching, wage dynamics, skill & AI cost dynamics
+│   ├── simulation/       # Engine, benchmarks, validation
+│   ├── analytics/        # Metrics, dashboards, plots, visualization
+│   ├── policy/           # UI, retraining, subsidies, tax credits
+│   └── config/           # 80+ validated Pydantic parameters
+├── tests/                # 81 tests (all passing)
+├── docs/                 # Project documentation
+│   ├── architecture.md   # System design, economic model, parameters
+│   ├── development-history.md  # Phase-by-phase build record
+│   └── roadmap.md        # Remaining work (Phases 6-8)
+├── notebooks/            # Jupyter workflows
+├── outputs/              # Results, dashboards, plots
 └── requirements.txt
 ```
 
@@ -72,11 +67,23 @@ ai_labor_market/
 - **Demand**: Inverse demand pricing (P = 1 - Q/Q_max, floor 0.1)
 - **Testing**: 15 integration tests for market dynamics
 
-### Phase 3: Enhancements (In Design)
-- Entrepreneurial business formation pipeline
-- Oligopolistic pricing (Cournot competition)
-- Population dynamics (labor supply growth)
-- Sectoral heterogeneity
+### Phase 3: Business Formation ✅
+- **Entrepreneurship system**: Workers start firms with accumulated savings
+- **Entry mechanics**: Stochastic entry responding to market saturation
+- **New firm initialization**: Random productivity, entry period tracking
+- **Dynamic firm list**: Firms enter and exit based on profitability
+- **Worker transitions**: UNEMPLOYED → ENTREPRENEUR → EMPLOYED (new firm)
+- **Exit handling**: Workers separate on firm exit, return to unemployment
+- **Testing**: 8 optimized tests (1.6 seconds runtime)
+
+### Phase 4: AI Adoption & Innovation ✅
+- **R&D Decision System**: Firms make endogenous choices about AI investment based on profitability
+- **Lagged Benefits**: 2-period lag between R&D investment and productivity gains (realistic innovation cycle)
+- **R&D Pipeline**: Track individual R&D projects from investment → development → deployment
+- **AI Adoption Mechanics**: Gradual firm-level AI adoption with worker displacement
+- **Multiple R&D Projects**: Firms can maintain concurrent projects with cumulative benefits
+- **Market Integration**: Productivity effects aggregate to firm and market productivity
+- **Testing**: 8 integration tests (Phase 3-4 combined, all passing)
 
 ## Configuration
 
@@ -104,13 +111,16 @@ pytest tests/ -v
 # Run specific module
 pytest tests/test_market_integration.py -v
 
-# With coverage
+#With coverage
 pytest tests/ --cov=src --cov-report=html
 ```
 
-**Status**: 40/40 tests passing ✅
+**Status**: 81/81 tests passing ✅
 - Phase 1: 25 tests (agents, configuration, basic market)
 - Phase 2: 15 tests (job market, simulation engine, dynamics)
+- Phase 3-4: 16 tests (business formation, AI adoption, integration)
+- Phase 5: 33 tests (policies, skills, AI cost curves)
+- **Runtime**: ~2 seconds total
 
 ## Running Simulations
 
@@ -173,17 +183,17 @@ source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+### Phase 5: Advanced Economics ✅
+- **Policy Interventions**: UI benefits, retraining programs, wage subsidies, tax credits
+- **Skill-Based Technical Change**: Job categories (Routine/Management/Creative) with differential AI substitutability
+- **AI Cost Dynamics**: Learning-by-doing cost curves, R&D-driven cost reduction, spillover effects
+- **Testing**: 33 tests for policies, skills, and AI cost curves
+
 ## Documentation
 
-- **[IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)** (50 pages): 
-  - Full architecture with 10 potential issues + solutions
-  - Parameter baseline with economic justification
-  - Implementation sequence
-  - Validation & calibration strategy
-
-- **[PHASE1_SUMMARY.md](PHASE1_SUMMARY.md)**: Agent implementation details
-
-- **[PHASE2_SUMMARY.md](PHASE2_SUMMARY.md)**: Market mechanics and engine
+- **[docs/architecture.md](docs/architecture.md)**: System design, economic model, parameters, validation strategy
+- **[docs/development-history.md](docs/development-history.md)**: Phase-by-phase implementation record
+- **[docs/roadmap.md](docs/roadmap.md)**: Remaining work (Phases 6–8)
 
 ## Key Design Features
 
@@ -208,13 +218,10 @@ See `requirements.txt`.
 
 ## Next Steps
 
-To continue development:
-
-1. **Phase 3A**: Run exploratory simulations (baseline parameters)
-2. **Phase 3B**: Implement business formation mechanics
-3. **Phase 4**: Add heterogenous productivity and oligopoly refinements
-4. **Phase 5**: Visualization dashboards
-5. **Phase 6-8**: Calibration, validation, advanced analytics
+See [docs/roadmap.md](docs/roadmap.md) for remaining work:
+- **Phase 6**: Comprehensive metrics & analytics (inequality indices, data export, regressions)
+- **Phase 7**: Visualization & interactive dashboards (static plots, Plotly dashboard)
+- **Phase 8**: Full integration, benchmarking & validation (end-to-end tests, sensitivity analysis)
 
 ## License
 

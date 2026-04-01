@@ -1,0 +1,7 @@
+*.pyc
+__pycache__/
+ai_labor_market/__pycache__/
+ai_labor_market/notebooks/__pycache__/
+ai_labor_market/data/__pycache__/
+ai_labor_market/outputs/
+outputs/

@@ -136,11 +136,18 @@ class SimulationConfig(BaseModel):
     )
     
     # ========== Wage and Labor Market Parameters ==========
+    # ========== UI & Benefits Parameters ==========
     ui_replacement_rate: float = Field(
         default=0.5,
         ge=0,
         le=1,
         description="Unemployment insurance as fraction of previous wage"
+    )
+    ui_benefit_duration_periods: int = Field(
+        default=26,
+        ge=1,
+        le=260,
+        description="Number of periods UI benefits last (26 = 6 months at monthly frequency)"
     )
     reservation_wage_multiplier: float = Field(
         default=0.8,
@@ -153,6 +160,126 @@ class SimulationConfig(BaseModel):
         ge=0,
         le=1,
         description="Speed of wage adjustment toward equilibrium (Phillips curve)"
+    )
+    
+    # ========== Retraining Program Parameters ==========
+    retraining_program_enabled: bool = Field(
+        default=False,
+        description="Enable worker retraining programs"
+    )
+    retraining_cost: float = Field(
+        default=5000.0,
+        ge=0,
+        description="Cost to enroll unemployed worker in retraining"
+    )
+    retraining_duration_periods: int = Field(
+        default=8,
+        ge=1,
+        le=52,
+        description="Duration of retraining program (8 = 2 months)"
+    )
+    retraining_success_rate: float = Field(
+        default=0.7,
+        ge=0,
+        le=1,
+        description="Fraction of trainees successfully trained"
+    )
+    retraining_productivity_boost: float = Field(
+        default=0.15,
+        ge=0,
+        le=1,
+        description="Wage increase after successful retraining (15% boost)"
+    )
+    
+    # ========== Wage Subsidy Parameters ==========
+    wage_subsidy_enabled: bool = Field(
+        default=False,
+        description="Enable wage subsidies for hiring"
+    )
+    wage_subsidy_amount: float = Field(
+        default=500.0,
+        ge=0,
+        description="Subsidy per worker per quarter"
+    )
+    wage_subsidy_target_group: str = Field(
+        default="displaced",
+        description="Target group for subsidy: 'displaced', 'low_skill', 'all'"
+    )
+    
+    # ========== R&D Tax Credit Parameters ==========
+    r_and_d_tax_credit_enabled: bool = Field(
+        default=False,
+        description="Enable R&D tax credits"
+    )
+    r_and_d_tax_credit_rate: float = Field(
+        default=0.25,
+        ge=0,
+        le=1,
+        description="R&D tax credit as fraction of R&D spending"
+    )
+    hiring_tax_credit_enabled: bool = Field(
+        default=False,
+        description="Enable tax credits for net job creation"
+    )
+    hiring_tax_credit_amount: float = Field(
+        default=2000.0,
+        ge=0,
+        description="Tax credit per new hire in first 12 months"
+    )
+    
+    # ========== Skill-Based Technical Change Parameters ==========
+    use_skill_heterogeneity: bool = Field(
+        default=False,
+        description="Enable worker skill levels (low-skill vs high-skill)"
+    )
+    skill_distribution_low_share: float = Field(
+        default=0.5,
+        ge=0,
+        le=1,
+        description="Fraction of workforce that are low-skill"
+    )
+    
+    # ========== Job Category Parameters ==========
+    use_job_categories: bool = Field(
+        default=False,
+        description="Enable job category classification (routine, management, creative)"
+    )
+    job_category_ai_multipliers: dict = Field(
+        default={
+            "routine": 2.0,
+            "management": 0.5,
+            "creative": 0.1
+        },
+        description="AI productivity multiplier by job category"
+    )
+    routine_job_share: float = Field(
+        default=0.5,
+        ge=0,
+        le=1,
+        description="Fraction of jobs classified as routine"
+    )
+    management_job_share: float = Field(
+        default=0.25,
+        ge=0,
+        le=1,
+        description="Fraction of jobs classified as management"
+    )
+    
+    # ========== AI Cost Curve Parameters ==========
+    ai_cost_curve_learning_enabled: bool = Field(
+        default=False,
+        description="Enable learning-by-doing AI cost reductions"
+    )
+    ai_cost_learning_parameter: float = Field(
+        default=0.3,
+        ge=0,
+        le=1,
+        description="Learning parameter λ in cost curve: cost = base × (1 + adoption)^(-λ)"
+    )
+    r_and_d_ai_cost_rate: float = Field(
+        default=0.002,
+        ge=0,
+        description="Cost reduction per $1 of R&D spending"
     )
     
     # ========== Firm Exit Parameters ==========
@@ -193,7 +320,7 @@ class SimulationConfig(BaseModel):
     )
     use_firm_learning: bool = Field(
         default=False,
-        description="Enable firmsadaptive learning (vs static optimization)"
+        description="Enable firms adaptive learning (vs static optimization)"
     )
     use_wage_bargaining: bool = Field(
         default=False,

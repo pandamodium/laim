@@ -28,7 +28,10 @@ class FirmState:
     accumulated_r_and_d: float = 0.0
     ai_productivity: float = 1.5
     human_productivity: float = 1.0
-    entry_period: int = 0  # Period when firm entered market (for age tracking)
+    entry_period: int = 0  # Period when firm entered market
+    r_and_d_efficiency: float = 1.0  # Firm-specific R&D efficiency (heterogeneous)
+    r_and_d_pipeline: List[Dict] = field(default_factory=list)  # Lagged R&D benefits
+    r_and_d_history: Dict[int, float] = field(default_factory=dict)  # Period -> spending
 
 
 class Firm(Agent):
@@ -51,7 +54,17 @@ class Firm(Agent):
         """
         super().__init__(agent_id=firm_id, agent_type="firm")
         self.config = config
-        self.state = FirmState(capital=initial_capital, entry_period=entry_period)
+        
+        # Draw firm-specific R&D efficiency
+        r_and_d_eff_std = getattr(config, 'r_and_d_efficiency_heterogeneity', 0.20)
+        r_and_d_efficiency = np.random.normal(loc=1.0, scale=r_and_d_eff_std)
+        r_and_d_efficiency = max(0.5, min(2.0, r_and_d_efficiency))  # Clamp to [0.5, 2.0]
+        
+        self.state = FirmState(
+            capital=initial_capital,
+            entry_period=entry_period,
+            r_and_d_efficiency=r_and_d_efficiency
+        )
         self.productivity_draw = np.random.normal(loc=1.0, scale=0.1)
         self.history: List[Dict] = []
     
@@ -283,14 +296,93 @@ class Firm(Agent):
         
         return profit
     
-    def make_r_and_d_decision(self) -> None:
-        """Decide R&D spending and update productivity.
+    def calculate_r_and_d_output(self, r_and_d_spending: float, current_period: int) -> tuple:
+        """Calculate R&D output given current investment with heterogeneous efficiency.
         
-        R&D dynamics:
-        - Firm allocates r_and_d_profit_share of current profits to R&D
-        - R&D spending reduces AI costs with lag
-        - Productivity improvement follows stochastic process
+        R&D spending creates two effects:
+        1. AI cost reduction (40% of benefit)
+        2. AI productivity boost (60% of benefit)
+        
+        Args:
+            r_and_d_spending: R&D allocation this period
+            current_period: Current simulation period
+            
+        Returns:
+            (ai_cost_reduction, ai_productivity_boost) - amount and sign
         """
+        if r_and_d_spending <= 0:
+            return 0.0, 0.0
+        
+        # Apply firm-specific efficiency
+        base_output = self.state.r_and_d_efficiency * r_and_d_spending
+        
+        # Random shock to innovation success
+        r_and_d_shock = np.random.normal(1.0, 0.1)
+        total_output = base_output * r_and_d_shock
+        
+        # Split between AI cost and productivity based on AI employment share
+        total_employed = max(1, self.state.human_workers_employed + self.state.ai_workers_employed)
+        ai_share = self.state.ai_workers_employed / total_employed
+        
+        # More R&D on AI reduction if high AI employment
+        ai_cost_fraction = min(0.6, 0.3 + 0.3 * ai_share)  # 0.3-0.6
+        prod_fraction = 1.0 - ai_cost_fraction
+        
+        ai_cost_reduction = ai_cost_fraction * total_output
+        ai_productivity_boost = prod_fraction * total_output
+        
+        logger.debug(
+            f"Firm {self.agent_id}: R&D output ({total_output:.3f}) "
+            f"-> AI cost reduction ({ai_cost_reduction:.3f}), "
+            f"AI productivity ({ai_productivity_boost:.3f})"
+        )
+        
+        return ai_cost_reduction, ai_productivity_boost
+    
+    def apply_lagged_r_and_d_benefits(self, current_period: int) -> None:
+        """Apply R&D benefits that have completed their lag period.
+        
+        R&D spending in period t realizes benefits in period t+lag_periods.
+        
+        Args:
+            current_period: Current simulation period
+        """
+        lag_periods = getattr(self.config, 'r_and_d_lag_periods', 2)
+        
+        # Check pipeline for benefits realizing this period
+        benefits_to_remove = []
+        for idx, benefit in enumerate(self.state.r_and_d_pipeline):
+            if benefit['realization_period'] == current_period:
+                ai_cost_reduction, ai_productivity_boost = benefit['output']
+                
+                # Apply productivity boost
+                self.state.ai_productivity += 0.01 * ai_productivity_boost
+                
+                logger.debug(
+                    f"Firm {self.agent_id}: Lagged R&D benefit realized in period {current_period}: "
+                    f"AI productivity += {0.01 * ai_productivity_boost:.4f}"
+                )
+                
+                benefits_to_remove.append(idx)
+        
+        # Remove applied benefits (iterate backward to maintain indices)
+        for idx in reversed(benefits_to_remove):
+            self.state.r_and_d_pipeline.pop(idx)
+    
+    def make_r_and_d_decision(self, current_period: int = 0) -> None:
+        """Decide R&D spending and queue benefits with lag.
+        
+        R&D dynamics (Phase 4):
+        - Firm allocates r_and_d_profit_share of profits to R&D
+        - R&D output calculated immediately with firm-specific efficiency
+        - Benefits realized with lag (default: 2 periods)
+        - Spillovers applied at economy level
+        
+        Args:
+            current_period: Current simulation period (for lag calculation)
+        """
+        lag_periods = getattr(self.config, 'r_and_d_lag_periods', 2)
+        
         # Allocate share of profits (if positive) to R&D
         if self.state.profits > 0:
             r_and_d_spend = self.state.profits * self.config.r_and_d_profit_share
@@ -299,11 +391,22 @@ class Firm(Agent):
         
         self.state.r_and_d_spending = r_and_d_spend
         self.state.accumulated_r_and_d += r_and_d_spend
+        self.state.r_and_d_history[current_period] = r_and_d_spend
         
-        # R&D increases AI productivity (with random shock)
-        r_and_d_shock = np.random.normal(1.0, 0.1)  # ~10% std dev
-        productivity_gain = self.config.r_and_d_efficiency * r_and_d_spend * r_and_d_shock
-        self.state.ai_productivity += 0.01 * productivity_gain
+        # Calculate output immediately
+        if r_and_d_spend > 0:
+            ai_cost_reduction, ai_productivity_boost = self.calculate_r_and_d_output(
+                r_and_d_spend,
+                current_period
+            )
+            
+            # Queue benefits for later realization
+            benefit_dict = {
+                'origin_period': current_period,
+                'output': (ai_cost_reduction, ai_productivity_boost),
+                'realization_period': current_period + lag_periods
+            }
+            self.state.r_and_d_pipeline.append(benefit_dict)
     
     def check_exit_condition(self) -> bool:
         """Check if firm should exit market.
