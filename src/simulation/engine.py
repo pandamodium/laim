@@ -41,6 +41,7 @@ class SimulationEngine:
         # Business formation tracking
         self.next_firm_id = config.num_firms  # ID counter for new firms
         self.firms_entered_this_period = 0
+        self.firms_exited_this_period = 0
         
         self._initialize_agents()
     
@@ -119,7 +120,7 @@ class SimulationEngine:
         
         ai_share = ai_employment / max(1, total_employment)
         
-        # Adjust wage using Phillips curve
+        # Adjust wage using Phillips curve (with floor to prevent collapse)
         self.market_wage_human = phillips_curve_wage_adjustment(
             self.market_wage_human,
             unemployment_rate,
@@ -127,11 +128,12 @@ class SimulationEngine:
             wage_adjustment_speed=self.config.wage_adjustment_speed,
             ai_employment_share=ai_share
         )
+        self.market_wage_human = max(0.1, self.market_wage_human)  # Wage floor
         
-        # AI cost may drift (simplified)
-        self.market_ai_cost = self.config.ai_wage_ratio * (
-            1 - 0.01 * sum(f.state.accumulated_r_and_d for f in self.firms.values()) / max(1, len(self.firms))
-        )
+        # AI cost may drift down with R&D (clamped to prevent going negative)
+        avg_r_and_d = sum(f.state.accumulated_r_and_d for f in self.firms.values()) / max(1, len(self.firms))
+        r_and_d_discount = min(0.8, 0.01 * avg_r_and_d)  # Cap at 80% reduction
+        self.market_ai_cost = self.config.ai_wage_ratio * (1 - r_and_d_discount)
     
     def _update_worker_reservations(self) -> None:
         """Update worker reservation wages based on unemployment spell."""
@@ -272,19 +274,21 @@ class SimulationEngine:
         self.job_market.allocate_matches_to_firms(self.firms, matches)
         
         # 9. Firm steps: production, profits, R&D
+        # First pass: all firms produce (accumulate total output for pricing)
         self.total_output = 0.0
+        for firm in self.firms.values():
+            firm.produce_output()
+            self.total_output += firm.state.output_produced
+        
+        # Compute single market-clearing price based on total supply
+        output_price = self._compute_output_price()
+        
+        # Second pass: profits and R&D at the common price
         total_profit = 0.0
         total_vacancies = 0
         
         for firm in self.firms.values():
-            # Production
-            firm.produce_output()
-            
-            # Profit calculation (use market-derived price)
-            output_price = self._compute_output_price()
             profit = firm.compute_profits(output_price)
-            
-            self.total_output += firm.state.output_produced
             total_profit += profit
             total_vacancies += firm.state.job_openings_human
             
@@ -299,6 +303,18 @@ class SimulationEngine:
             fid for fid, firm in self.firms.items()
             if firm.check_exit_condition()
         ]
+        self.firms_exited_this_period = len(firms_to_remove)
+        
+        # Separate workers at exiting firms
+        if firms_to_remove:
+            exiting_set = set(firms_to_remove)
+            for worker in self.workers.values():
+                if (worker.state.status == WorkerStatus.EMPLOYED
+                        and worker.state.current_firm in exiting_set):
+                    worker.state.status = WorkerStatus.UNEMPLOYED
+                    worker.state.current_firm = None
+                    worker.state.current_wage = 0.0
+                    worker.state.unemployment_duration = 0
         
         for fid in firms_to_remove:
             logger.debug(f"Firm {fid} exiting market")
@@ -349,21 +365,22 @@ class SimulationEngine:
             )
     
     def _compute_output_price(self) -> float:
-        """Compute output market price (simple inverse demand).
+        """Compute output market price (inverse demand).
         
-        P = 1 - (Q / Q_max) where Q_max is capacity
+        P = a - a * (Q / Q_max)  where a = price intercept
         
         Returns:
             Output price
         """
-        q_max = 100.0  # Market capacity
+        q_max = self.config.output_market_capacity
+        if q_max <= 0:
+            # Auto-scale: capacity = 4× initial workforce
+            q_max = 4.0 * self.config.initial_human_workers
+        
+        a = self.config.output_price_intercept
         q_supplied = self.total_output
         
-        if q_supplied > q_max:
-            price = 0.1  # Price floor
-        else:
-            price = 1.0 - (q_supplied / q_max)
-        
+        price = a * (1.0 - q_supplied / q_max)
         return max(0.1, price)
     
     def run(self) -> pd.DataFrame:
@@ -391,13 +408,74 @@ class SimulationEngine:
         return self.metrics.get_results_dataframe()
     
     def get_aggregate_statistics(self) -> Dict:
-        """Get current aggregate statistics."""
+        """Get current aggregate statistics for analysis and plotting.
+        
+        Returns a dict with keys matching those expected by PlotGenerator
+        and DashboardBuilder (e.g. avg_wage_human, ai_employment_share,
+        total_r_and_d_spending, etc.).
+        """
+        # Employment counts
+        employed_human = sum(
+            f.state.human_workers_employed for f in self.firms.values()
+        )
+        employed_ai = sum(
+            f.state.ai_workers_employed for f in self.firms.values()
+        )
+        total_employment = employed_human + employed_ai
+        
+        # Average human wage (from employed workers)
+        employed_workers = [
+            w for w in self.workers.values()
+            if w.state.status == WorkerStatus.EMPLOYED
+        ]
+        avg_wage_human = (
+            sum(w.state.current_wage for w in employed_workers)
+            / max(1, len(employed_workers))
+        )
+        
+        # AI metrics
+        ai_employment_share = employed_ai / max(1, total_employment)
+        avg_ai_cost = (
+            sum(f.state.posted_cost_ai for f in self.firms.values())
+            / max(1, len(self.firms))
+        ) if self.firms else 0.0
+        
+        # R&D metrics
+        total_r_and_d_spending = sum(
+            f.state.r_and_d_spending for f in self.firms.values()
+        )
+        
+        # Firm metrics
+        total_profit = sum(f.state.profits for f in self.firms.values())
+        avg_firm_size = employed_human / max(1, len(self.firms)) if self.firms else 0
+        
+        # Productivity
+        output_per_worker = self.total_output / max(1, total_employment)
+        
+        # Unemployed count
+        num_unemployed = sum(
+            1 for w in self.workers.values()
+            if w.state.status == WorkerStatus.UNEMPLOYED
+        )
+        
         return {
             "period": self.period,
             "num_firms": len(self.firms),
+            "num_employed_human": employed_human,
+            "num_employed_ai": employed_ai,
+            "num_unemployed": num_unemployed,
             "unemployment_rate": self.unemployment_rate,
-            "market_wage_human": self.market_wage_human,
+            "avg_wage_human": avg_wage_human,
+            "avg_wage_ai": avg_ai_cost,
+            "ai_employment_share": ai_employment_share,
             "total_output": self.total_output,
-            "firms_in_market": list(self.firms.keys()),
+            "total_profit": total_profit,
+            "total_r_and_d_spending": total_r_and_d_spending,
+            "avg_firm_size": avg_firm_size,
+            "output_per_worker": output_per_worker,
+            "ai_cost_index": self.market_ai_cost,
+            "market_wage_human": self.market_wage_human,
+            "new_firms_entered": self.firms_entered_this_period,
+            "firms_exited": self.firms_exited_this_period,
         }
 

@@ -65,38 +65,43 @@ class JobMarket:
             # Update firm's posted wages
             firm.post_wages_and_vacancies(market_wage_human)
             
-            # Firm computes desired labor input
-            output_target = 10 + firm_id * 5  # Simple: distribute across firms
+            # Firm targets output proportional to its human workforce
+            output_target = max(1, firm.state.human_workers_employed) * firm.state.human_productivity
+            
             human_demand, ai_demand = firm.compute_labor_demand(
                 firm.state.posted_wage_human,
                 firm.state.posted_cost_ai,
                 output_target
             )
             
+            # Post NET openings (desired level minus current employment)
+            human_openings = max(0, human_demand - firm.state.human_workers_employed)
+            ai_openings = max(0, ai_demand - firm.state.ai_workers_employed)
+            
             # Post human job openings
-            if human_demand > 0:
+            if human_openings > 0:
                 self.job_postings.append(
                     JobPosting(
                         firm_id=firm_id,
                         wage=firm.state.posted_wage_human,
-                        quantity=human_demand,
+                        quantity=human_openings,
                         is_ai=False
                     )
                 )
             
             # Post AI "jobs" (really AI unit purchases)
-            if ai_demand > 0:
+            if ai_openings > 0:
                 self.job_postings.append(
                     JobPosting(
                         firm_id=firm_id,
                         wage=firm.state.posted_cost_ai,
-                        quantity=ai_demand,
+                        quantity=ai_openings,
                         is_ai=True
                     )
                 )
             
-            firm.state.job_openings_human = human_demand
-            firm.state.job_openings_ai = ai_demand
+            firm.state.job_openings_human = human_openings
+            firm.state.job_openings_ai = ai_openings
     
     def workers_apply(
         self,

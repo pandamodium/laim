@@ -84,7 +84,7 @@ class SimulationConfig(BaseModel):
         description="Multiplier on entrepreneurship rate for unemployed (vs employed)"
     )
     min_capital_to_start_firm: float = Field(
-        default=10000.0,
+        default=50.0,
         ge=0,
         description="Minimum accumulated savings needed to start business"
     )
@@ -288,6 +288,18 @@ class SimulationConfig(BaseModel):
         ge=1,
         le=12,
         description="Number of consecutive loss periods before firm exits"
+    )
+    
+    # ========== Output Market Parameters ==========
+    output_market_capacity: float = Field(
+        default=0.0,
+        ge=0,
+        description="Market capacity Q_max for inverse demand. If 0, auto-scaled to 2x initial workforce."
+    )
+    output_price_intercept: float = Field(
+        default=2.0,
+        ge=0.1,
+        description="Max willingness-to-pay (demand intercept). Must exceed wage for firm viability."
     )
     
     # ========== Simulation Parameters ==========

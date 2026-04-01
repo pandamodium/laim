@@ -218,16 +218,13 @@ class Firm(Agent):
         self.state.ai_workers_employed = max(0, self.state.ai_workers_employed - ai_separated + matched_ai)
     
     def produce_output(self) -> float:
-        """Produce output given current workforce using CES production function.
+        """Produce output given current workforce.
         
-        Output = A * [α*L_H^(-σ) + (1-α)*L_AI^(-σ)]^(-1/σ)
+        Uses additive production: Y = A * (L_H + multiplier * L_AI)
+        where A = firm productivity and multiplier = AI productivity relative to human.
         
-        where:
-        - A = firm productivity
-        - L_H = human workers
-        - L_AI = AI units (adjusted for productivity)
-        - σ = elasticity parameter
-        - α = share parameter
+        This captures AI as a substitute for human labor where each AI unit
+        contributes ai_productivity units of effective labor.
         
         Returns:
             Output quantity produced
@@ -235,32 +232,11 @@ class Firm(Agent):
         # Base productivity
         productivity = self.productivity_draw * self.state.human_productivity
         
-        # AI productivity adjusted
+        # Effective labor: human workers + AI-equivalent workers
         ai_effective_units = self.state.ai_workers_employed * self.state.ai_productivity
         human_units = self.state.human_workers_employed
         
-        if human_units == 0 and ai_effective_units == 0:
-            self.state.output_produced = 0.0
-            return 0.0
-        
-        # CES aggregation with safe computation
-        sigma = 1.0 / self.config.firm_substitution_elasticity
-        alpha = 0.6  # Human labor share parameter
-        
-        # Handle edge cases: if one input is zero, use Leontief approximation
-        if human_units == 0:
-            output = productivity * ai_effective_units  # AI only
-        elif ai_effective_units == 0:
-            output = productivity * human_units  # Human only
-        else:
-            # Standard CES
-            try:
-                ces_term = (alpha * (human_units ** (-sigma)) + 
-                           (1 - alpha) * (ai_effective_units ** (-sigma)))
-                output = productivity * (ces_term ** (-1.0 / sigma))
-            except (ZeroDivisionError, ValueError):
-                # Fallback to Cobb-Douglas if CES has issues
-                output = productivity * (human_units ** alpha) * (ai_effective_units ** (1 - alpha))
+        output = productivity * (human_units + ai_effective_units)
         
         self.state.output_produced = max(0.0, output)
         return self.state.output_produced
