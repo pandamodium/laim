@@ -67,14 +67,22 @@ class SimulationEngine:
             skill = SkillLevel.HIGH if np.random.random() < 0.3 else SkillLevel.LOW
             worker = Worker(i, self.config, skill_level=skill)
             worker.state.status = WorkerStatus.EMPLOYED
-            worker.state.current_wage = self.market_wage_human
             
-            # Randomly assign to firms
+            # Randomly assign to firms — wage set from firm's MPL
             firm_id = i % self.config.num_firms
+            firm = self.firms[firm_id]
+            worker.state.current_wage = firm.compute_mpl_human() * self.config.labor_share_of_mpl
             worker.state.current_firm = firm_id
             
             self.workers[i] = worker
-            self.firms[firm_id].state.human_workers_employed += 1
+            firm.state.human_workers_employed += 1
+        
+        # Set initial market wage as average of firm posted wages
+        if self.firms:
+            self.market_wage_human = np.mean([
+                f.compute_mpl_human() * self.config.labor_share_of_mpl
+                for f in self.firms.values()
+            ])
         
         logger.info(f"Initialized {len(self.firms)} firms and {len(self.workers)} workers")
         logger.info(f"Initial employment: {num_employed} employed, {num_unemployed} unemployed")
@@ -104,32 +112,27 @@ class SimulationEngine:
         return unemployed, unemployment_rate, employed, job_vacancies
     
     def _update_aggregate_wage(self, unemployment_rate: float) -> None:
-        """Update market wage using Phillips curve.
+        """Update market wage as employment-weighted average of firm posted wages.
+        
+        With MPL-based wage posting, the market wage is now a *computed statistic*
+        (the average of what firms actually post) rather than a Phillips curve output.
+        This lets wages emerge from firm-level productivity and competition.
         
         Args:
             unemployment_rate: Current unemployment rate
         """
-        # AI employment share (for dampening)
-        total_employment = sum(
-            f.state.human_workers_employed + f.state.ai_workers_employed
-            for f in self.firms.values()
-        )
-        ai_employment = sum(
-            f.state.ai_workers_employed for f in self.firms.values()
+        # Compute employment-weighted average of firm posted wages
+        total_human_employed = sum(
+            f.state.human_workers_employed for f in self.firms.values()
         )
         
-        ai_share = ai_employment / max(1, total_employment)
-        
-        # Adjust wage using Phillips curve (with floor to prevent collapse)
-        self.market_wage_human = phillips_curve_wage_adjustment(
-            self.market_wage_human,
-            unemployment_rate,
-            natural_unemployment_rate=0.045,
-            wage_adjustment_speed=self.config.wage_adjustment_speed,
-            ai_employment_share=ai_share,
-            downward_wage_rigidity=self.config.downward_wage_rigidity
-        )
-        self.market_wage_human = max(0.1, self.market_wage_human)  # Wage floor
+        if total_human_employed > 0:
+            weighted_wage = sum(
+                f.state.posted_wage_human * f.state.human_workers_employed
+                for f in self.firms.values()
+            ) / total_human_employed
+            self.market_wage_human = max(0.1, weighted_wage)
+        # else: keep previous period's wage as reference
         
         # AI cost may drift down with R&D (clamped to prevent going negative)
         avg_r_and_d = sum(f.state.accumulated_r_and_d for f in self.firms.values()) / max(1, len(self.firms))
@@ -146,6 +149,54 @@ class SimulationEngine:
                     worker.state.unemployment_duration,
                     self.config
                 )
+    
+    def _process_poaching(self) -> int:
+        """Process on-the-job search: employed workers may receive outside offers.
+        
+        Each employed worker has a probability (on_the_job_search_rate) of
+        sampling one random firm's posted wage. If the outside wage exceeds
+        their current wage by poaching_wage_threshold, they switch.
+        
+        This creates competitive pressure: high-productivity firms poach from
+        low-productivity firms, forcing all firms to raise wages as productivity grows.
+        
+        Returns:
+            Number of workers who switched firms
+        """
+        search_rate = getattr(self.config, 'on_the_job_search_rate', 0.05)
+        if search_rate <= 0 or not self.firms:
+            return 0
+        
+        switches = 0
+        firm_list = list(self.firms.values())
+        
+        for worker in self.workers.values():
+            if worker.state.status != WorkerStatus.EMPLOYED:
+                continue
+            
+            # Stochastic: does this worker look around this period?
+            if np.random.random() >= search_rate:
+                continue
+            
+            # Sample one random firm (could be their own — in which case no switch)
+            outside_firm = firm_list[np.random.randint(len(firm_list))]
+            if outside_firm.agent_id == worker.state.current_firm:
+                continue
+            
+            old_firm_id = worker.state.current_firm
+            if worker.evaluate_poaching_offer(outside_firm.agent_id, outside_firm.state.posted_wage_human):
+                # Update firm headcounts
+                if old_firm_id in self.firms:
+                    self.firms[old_firm_id].state.human_workers_employed = max(
+                        0, self.firms[old_firm_id].state.human_workers_employed - 1
+                    )
+                outside_firm.state.human_workers_employed += 1
+                switches += 1
+        
+        if switches > 0:
+            logger.debug(f"Poaching: {switches} workers switched firms")
+        
+        return switches
     
     def _process_entrepreneurship_and_entry(self) -> int:
         """Process entrepreneurship decisions and create new firms.
@@ -197,7 +248,7 @@ class SimulationEngine:
                 # Employ entrepreneur with new firm
                 worker.state.status = WorkerStatus.EMPLOYED
                 worker.state.current_firm = new_firm_id
-                worker.state.current_wage = self.market_wage_human
+                worker.state.current_wage = new_firm.compute_mpl_human() * self.config.labor_share_of_mpl
                 worker.state.accumulated_savings = 0  # Capital used
                 new_firm.state.human_workers_employed = 1  # Entrepreneur counts as employee
                 
@@ -258,7 +309,8 @@ class SimulationEngine:
         self.job_market.firms_post_jobs(
             self.firms,
             self.market_wage_human,
-            self.market_ai_cost
+            self.market_ai_cost,
+            unemployment_rate=self.unemployment_rate
         )
         
         # 6. Workers apply to jobs
@@ -273,6 +325,9 @@ class SimulationEngine:
         
         # 8. Allocate matches to firms
         self.job_market.allocate_matches_to_firms(self.firms, matches)
+        
+        # 8b. On-the-job search (poaching): employed workers sample outside offers
+        self._process_poaching()
         
         # 9. Firm steps: production, profits, R&D
         # First pass: all firms produce (accumulate total output for pricing)

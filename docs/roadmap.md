@@ -1,8 +1,8 @@
 # LAIM Roadmap
 
-Remaining implementation work for phases 6–8, building on the completed foundation (Phases 1–5).
+Remaining implementation work for phases 6–8, building on the completed foundation (Phases 1–5) and the competitive wage mechanism.
 
-**Current Status**: Phases 1–5 complete (81 tests passing). Phases 6–8 partially implemented.
+**Current Status**: Phases 1–5 complete. Competitive wage mechanism & superstar firms complete (154 tests passing). Phases 6–8 partially implemented.
 
 ---
 
@@ -103,6 +103,11 @@ Expand metrics beyond current level to enable detailed analysis.
 Parameters to sweep:
 - `num_firms` (2, 3, 5, 10)
 - `ai_productivity_multiplier` (1.2, 1.5, 2.0, 3.0)
+- `firm_productivity_dispersion` (0.0, 0.3, 0.5, 1.0)
+- `labor_share_of_mpl` (0.5, 0.65, 0.8)
+- `on_the_job_search_rate` (0.0, 0.05, 0.10, 0.20)
+- `poaching_wage_threshold` (0.0, 0.05, 0.10)
+- `downward_wage_rigidity` (0.0, 0.3, 0.5, 1.0)
 - `r_and_d_lag_periods` (1, 2, 3, 4)
 - `entrepreneurship_rate` (0.02, 0.05, 0.10)
 - `matching_efficiency` (0.5, 1.0, 1.5)

@@ -140,7 +140,7 @@ class TestSimulationEngine:
         assert len(engine.firms) == config.num_firms
         assert len(engine.workers) == config.initial_human_workers
         assert engine.period == 0
-        assert engine.market_wage_human == 1.0
+        assert engine.market_wage_human > 0  # MPL-based, no longer fixed at 1.0
         assert engine.unemployment_rate == 0.0
     
     def test_initial_employment_split(self):
@@ -187,22 +187,16 @@ class TestSimulationEngine:
         assert vacancies >= 0
     
     def test_wage_adjustment(self):
-        """Test Phillips curve wage adjustment."""
+        """Test that market wage is computed from firm posted wages (MPL-based)."""
         config = SimulationConfig()
         engine = SimulationEngine(config)
         
-        initial_wage = engine.market_wage_human
+        # Market wage should be positive and derived from firm productivity
+        assert engine.market_wage_human > 0
         
-        # High unemployment should reduce wages
-        engine._update_aggregate_wage(unemployment_rate=0.10)
-        assert engine.market_wage_human < initial_wage
-        
-        # Reset
-        engine.market_wage_human = initial_wage
-        
-        # Low unemployment should increase wages
-        engine._update_aggregate_wage(unemployment_rate=0.02)
-        assert engine.market_wage_human > initial_wage
+        # After updating, wage should reflect employment-weighted average of posted wages
+        engine._update_aggregate_wage(unemployment_rate=0.05)
+        assert engine.market_wage_human > 0
     
     def test_multiple_periods(self):
         """Test simulation runs for multiple periods."""

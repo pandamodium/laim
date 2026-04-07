@@ -25,6 +25,18 @@ class SimulationConfig(BaseModel):
         le=10,
         description="CES elasticity between human and AI labor (>1 means substitutes)"
     )
+    firm_productivity_dispersion: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=2.0,
+        description="Log-normal sigma for firm productivity draws. Higher = more superstar firms. 0 = identical firms."
+    )
+    labor_share_of_mpl: float = Field(
+        default=0.65,
+        ge=0.1,
+        le=0.95,
+        description="Fraction of marginal product of labor offered as wage (firms keep 1 - this as markup)"
+    )
     output_demand_elasticity: float = Field(
         default=1.0,
         description="Price elasticity of output demand (for Cournot competition)"
@@ -48,6 +60,18 @@ class SimulationConfig(BaseModel):
         ge=0,
         le=1,
         description="Monthly exogenous job separation rate (workers become unemployed)"
+    )
+    on_the_job_search_rate: float = Field(
+        default=0.05,
+        ge=0,
+        le=1,
+        description="Monthly probability an employed worker samples an outside offer (poaching)"
+    )
+    poaching_wage_threshold: float = Field(
+        default=0.05,
+        ge=0,
+        le=1,
+        description="Minimum wage premium (fraction) for a worker to switch firms"
     )
     
     # ========== AI Parameters ==========

@@ -36,12 +36,25 @@ $$M = A \cdot U^{\alpha} \cdot V^{1-\alpha}$$
 - Efficiency: $A$ = `matching_efficiency` (default 1.0)
 - Elasticity: $\alpha = 0.5$
 
-### 2.3 Wage Adjustment (Phillips Curve)
+### 2.3 Wage Determination (MPL-Based Competitive)
 
-$$\Delta W = -1.0 \cdot (u - u_{NAIRU}) - 0.1 \cdot AI_{share}$$
+Wages are set endogenously through firm-level competition, not a centralized Phillips curve.
 
-- Responds to unemployment gap and AI adoption
-- Adjustment speed: 0.5 monthly
+**Firm wage posting (MPL-based)**:
+$$w_f = \text{MPL}_H^f \times \theta \times (1 + \phi(u))$$
+
+where:
+- $\text{MPL}_H^f = A_f \cdot h_f$ is firm $f$'s marginal product of human labor
+- $\theta$ = `labor_share_of_mpl` (default 0.65) — fraction of MPL paid as wage
+- $\phi(u) = -0.5 \cdot (u - u_{NAIRU})$ — cyclical tightness adjustment (capped at ±10%)
+
+**Directed search** (Moen 1997): Workers apply with probability proportional to posted wages. Higher-wage firms attract more applicants.
+
+**On-the-job search (poaching)**: Employed workers sample outside offers at rate `on_the_job_search_rate` (default 5%/month). Switch if outside wage exceeds current by `poaching_wage_threshold` (default 5%). This creates competitive upward pressure on wages as productivity grows.
+
+**Market wage**: Computed as employment-weighted average of firm posted wages (a statistic, not an input).
+
+**Downward rigidity**: When firm MPL implies a wage cut, the adjustment is scaled by `downward_wage_rigidity` (default 0.3 = wages fall at 30% the speed they rise).
 
 ### 2.4 Output Pricing (Inverse Demand)
 
@@ -76,6 +89,13 @@ Firms exit after cumulative losses exceeding 2 periods of profit.
 | Management | Medium (0.5×) | Moderate |
 | Creative | Low (0.1×) | Complement/upward |
 
+### 2.9 Firm Productivity Distribution (Superstar Firms)
+
+Firm productivity $A_f$ is drawn from a log-normal distribution:
+$$\ln(A_f) \sim N(0,\ \sigma_{\text{prod}})$$
+
+With default $\sigma_{\text{prod}} = 0.5$ (`firm_productivity_dispersion`), the top ~10% of firms have ~2× median productivity and the top 2–3% have ~3–4×. This matches the empirical literature on firm productivity dispersion (Syverson 2011, Autor et al. 2020 "superstar firms").
+
 ---
 
 ## 3. Agent Architecture
@@ -86,9 +106,10 @@ Firms exit after cumulative losses exceeding 2 periods of profit.
 
 **Key Methods**:
 - `compute_labor_demand()` — CES elasticity of substitution
+- `compute_mpl_human()` — Marginal product of human labor ($A_f \cdot h_f$)
 - `produce_output()` — Handles edge cases (zero labor)
 - `compute_profits()` — Revenue minus labor costs
-- `post_wages_and_vacancies()` — Strategic wage setting with markup
+- `post_wages_and_vacancies()` — MPL-based wage posting with cyclical adjustment
 - `make_r_and_d_decision(current_period)` — Endogenous R&D choice
 - `apply_lagged_r_and_d_benefits(current_period)` — 2-period lag application
 - `check_exit_condition()` — Bankruptcy logic
@@ -100,6 +121,7 @@ Firms exit after cumulative losses exceeding 2 periods of profit.
 
 **Key Methods**:
 - `receive_job_offer()` — Job acceptance logic
+- `evaluate_poaching_offer()` — On-the-job search: accept outside offer if wage premium exceeds threshold
 - `update_unemployment_spell()` — Duration tracking with reservation wage decay
 - `consider_entrepreneurship()` — Stochastic business entry
 - `step()` — Coordinates worker behavior each period
@@ -117,25 +139,27 @@ Simplified pooled tracking — AI agents are not individual, tracked at firm lev
 ```
 Period t Flow:
  1. Compute market statistics (unemployment, vacancies)
- 2. Update market wage via Phillips curve
+ 2. Update market wage (employment-weighted avg of firm posted wages)
  3. Update worker reservation wages
- 4. Process firm exits and separate workers
- 5. Process entrepreneurship and new firm entry
- 6. Execute worker steps (separations, unemployment)
- 7. Clear job market
- 8. Firms post wages and job vacancies
- 9. Workers apply to jobs
-10. Matching and employment allocation
-11. Production and profit calculation
-12. R&D decisions + lagged benefit application
+ 4. Execute worker steps (separations, unemployment)
+ 5. Clear job market
+ 6. Firms post wages (MPL-based) and job vacancies
+ 7. Workers apply via directed search (wage-weighted)
+ 8. Matching and employment allocation
+ 8b. On-the-job search / poaching
+ 9. Production and profit calculation
+10. R&D decisions + lagged benefit application
+11. Process firm exits
+12. Process entrepreneurship and new firm entry
 13. Collect metrics
 ```
 
 ### Market Clearing
 
 - Firms post both human and AI jobs (unlimited AI supply at cost)
-- Workers apply stochastically (2–3 applications per search)
-- Matching function allocates jobs respecting firm capacities
+- Workers apply via directed search — probability proportional to posted wage
+- Cobb-Douglas matching function determines match count; allocation respects firm capacities
+- Employed workers may receive outside offers (poaching) and switch if premium exceeds threshold
 
 ---
 
@@ -149,9 +173,9 @@ src/
 │   ├── worker.py     # Worker agent (job search, entrepreneurship)
 │   └── ai_agent.py   # Pooled AI tracking
 ├── market/           # Market mechanics
-│   ├── job_market.py # Job posting, application, matching
+│   ├── job_market.py # Job posting, directed search, matching
 │   ├── matching.py   # Cobb-Douglas matching function
-│   ├── wage_dynamics.py    # Phillips curve
+│   ├── wage_dynamics.py    # Reservation wage computation (Phillips curve retained for reference)
 │   ├── skill_dynamics.py   # Skill heterogeneity & wage polarization
 │   └── ai_cost_dynamics.py # Learning-by-doing cost curves
 ├── simulation/
@@ -195,8 +219,13 @@ All parameters live in `src/config/parameters.py` (Pydantic-validated, single so
 | `initial_human_workers` | 1000 | Labor supply |
 | `human_population_growth_rate` | 0.02 | Annual growth |
 | `firm_substitution_elasticity` | 1.5 | Human-AI elasticity |
+| `firm_productivity_dispersion` | 0.5 | Log-normal σ for superstar firms |
+| `labor_share_of_mpl` | 0.65 | Fraction of MPL offered as wage |
 | `ai_productivity_multiplier` | 1.5 | AI productivity relative to human |
 | `ai_wage_ratio` | 0.5 | AI cost / human wage |
+| `on_the_job_search_rate` | 0.05 | Monthly poaching probability |
+| `poaching_wage_threshold` | 0.05 | Min premium to switch firms |
+| `downward_wage_rigidity` | 0.3 | Asymmetric wage adjustment (0=rigid, 1=flex) |
 | `base_entrepreneurship_rate` | 0.05 | Business formation rate |
 | `r_and_d_profit_share` | 0.05 | R&D allocation |
 | `matching_efficiency` | 1.0 | Cobb-Douglas efficiency |
@@ -229,9 +258,14 @@ All parameters live in `src/config/parameters.py` (Pydantic-validated, single so
 |-----------|----------|---------------|
 | `num_firms` | 3 | Small enough for visible dynamics, large enough for competition |
 | `initial_human_workers` | 1000 | Large enough for meaningful statistics |
+| `firm_productivity_dispersion` | 0.5 | Matches Syverson (2011) TFP dispersion; creates 2–4× superstar firms |
+| `labor_share_of_mpl` | 0.65 | Empirical labor share of income ~60–70% |
 | `ai_productivity` | 1.5× | Conservative estimate |
 | `ai_wage_ratio` | 0.5× | Reflects hardware/electricity costs < human labor |
 | `match_elasticity` | 0.5 | Standard in labor economics literature |
+| `on_the_job_search_rate` | 0.05 | ~5% monthly job-to-job transition rate (Fallick & Fleischman 2004) |
+| `poaching_wage_threshold` | 0.05 | Workers need 5% premium to switch (mobility friction) |
+| `downward_wage_rigidity` | 0.3 | Real wages fall slowly via inflation erosion |
 | `entrepreneurship_rate` | 0.05 | Kauffman survey average ~3–5% |
 | `r_and_d_profit_share` | 0.05 | Typical for technology firms |
 
@@ -246,13 +280,16 @@ All parameters live in `src/config/parameters.py` (Pydantic-validated, single so
 - Start with ~1000 agents on monthly time-step
 
 ### Market Clearing & Frictions
-- Matching function applied after firm hiring decisions
-- Phillips-curve style wage adjustment with AI dampening
-- If vacancies > qualified labor, rationing by draw
+- MPL-based firm wage posting with cyclical tightness adjustment
+- Directed search: workers apply proportionally to posted wages (Moen 1997)
+- On-the-job search: employed workers receive outside offers, creating poaching dynamics
+- Cobb-Douglas matching function for job allocation
+- Downward wage rigidity: wages fall at a fraction of the speed they rise
 
 ### Agent Heterogeneity
-- Firm heterogeneity: initially limited (random initial productivity)
+- Firm heterogeneity: log-normal productivity distribution (superstar firms)
 - Worker heterogeneity: toggleable skill levels (low/high)
+- Wage dispersion: emerges endogenously from firm productivity dispersion
 - Simplified decision rules (static best-response, threshold rules)
 - Configuration flags toggle complexity features
 

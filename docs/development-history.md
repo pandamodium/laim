@@ -146,3 +146,74 @@ A chronological record of each implementation phase, documenting what was built,
 - Skill heterogeneity: 13 tests (skill matching, job categories, wage polarization)
 - AI cost dynamics: 17 tests (cost curves, productivity, market dynamics, analysis)
 - Zero regressions across all prior phases
+
+---
+
+## Competitive Wage Mechanism & Superstar Firms ✅
+
+**Completed**: April 2026
+
+### Motivation
+
+Wages were falling in all simulation scenarios regardless of AI parameters. Root cause: the Phillips curve was the sole wage-setter, and it had no productivity growth term. Wages only responded to the unemployment gap — at NAIRU, wage growth was exactly zero. The AI dampening term ($-0.1 \times AI_{share}$) created persistent downward pressure even with minimal AI adoption. There was no mechanism for productivity gains to flow to wages.
+
+### What Was Built
+
+#### 1. Superstar Firm Productivity (`src/agents/firm.py`)
+- **Log-normal productivity distribution**: Firm TFP $A_f$ drawn from $\ln(A_f) \sim N(0, \sigma)$ with default $\sigma = 0.5$
+- Creates right-skewed distribution: top ~10% of firms have ~2× median productivity, top 2–3% have ~3–4×
+- Matches empirical literature (Syverson 2011, Autor et al. 2020)
+- New config param: `firm_productivity_dispersion` (default 0.5, range [0, 2])
+
+#### 2. MPL-Based Wage Posting (`src/agents/firm.py`)
+- **New method** `compute_mpl_human()`: Returns $A_f \cdot h_f$ (marginal product of human labor)
+- **Replaced** old `post_wages_and_vacancies()`: Firms now post $w_f = \text{MPL} \times \theta \times (1 + \phi(u))$
+  - $\theta$ = `labor_share_of_mpl` (default 0.65): fraction of MPL paid as wage
+  - $\phi(u)$: cyclical tightness adjustment (±10% cap), bridges to NAIRU
+- High-productivity firms naturally post higher wages — this is the channel through which productivity growth flows to wages
+- New config param: `labor_share_of_mpl` (default 0.65, range [0.1, 0.95])
+
+#### 3. Directed Search (`src/market/job_market.py`)
+- **Replaced random application** with wage-weighted directed search (Moen 1997)
+- Workers apply with probability proportional to posted wages
+- Higher-wage firms attract more applicants, creating the labour market competition that bids wages up
+- Firms face trade-off: higher wage attracts more workers but costs more per hire
+
+#### 4. On-the-Job Search / Poaching (`src/agents/worker.py`, `src/simulation/engine.py`)
+- **New method** `evaluate_poaching_offer()` on Worker: accept if outside wage exceeds current by threshold
+- **New engine method** `_process_poaching()`: each period, employed workers sample outside offers
+- Creates two-way pressure: high-productivity firms poach from low-productivity firms; all firms must raise wages to retain
+- New config params: `on_the_job_search_rate` (default 0.05/month), `poaching_wage_threshold` (default 0.05)
+
+#### 5. Retired Phillips Curve as Primary Wage Setter (`src/simulation/engine.py`)
+- `market_wage_human` is now a **computed statistic**: employment-weighted average of firm posted wages
+- No longer set by Phillips curve — wages emerge from firm-level MPL and competitive dynamics
+- Phillips curve code retained in `wage_dynamics.py` for reference/reservation wage computation
+- Downward wage rigidity (`downward_wage_rigidity`, default 0.3) still available in config
+
+#### 6. Downward Wage Rigidity (`src/market/wage_dynamics.py`, `src/config/parameters.py`)
+- Added asymmetric adjustment: when wage_growth < 0, scaled by `downward_wage_rigidity`
+- 0 = fully rigid downward, 1 = fully flexible (symmetric)
+- Captures stylized fact that real wages fall slowly via inflation erosion
+
+#### 7. Streamlit UI Updates (`src/ui/parameter_panel.py`)
+- Added sliders: Productivity Dispersion, Labor Share of MPL, On-the-Job Search Rate, Poaching Wage Threshold, Downward Wage Rigidity
+
+### Key Design Decisions
+
+- **Why MPL-based over Phillips curve?** The Phillips curve is a reduced-form shortcut for cyclical fluctuations. It cannot generate trend wage growth because it has no productivity term. MPL-based posting makes wages endogenous to productivity — wage growth *emerges* from R&D, firm competition, and poaching.
+- **Why log-normal for productivity?** Matches well-documented empirical facts: firm productivity is right-skewed with fat tails. A few superstar firms dominate output (Autor et al. 2020).
+- **Why directed search?** Without it, a firm posting 2× the wage gets the same applications as one posting 0.5×. Directed search (Moen 1997) creates the competitive bidding mechanism.
+- **Why on-the-job search?** Without it, employed workers never receive competing offers — the main real-world mechanism for wage growth is eliminated.
+
+### Code Impact
+- `agents/firm.py`: +35 lines (compute_mpl_human, new post_wages_and_vacancies)
+- `agents/worker.py`: +25 lines (evaluate_poaching_offer)
+- `simulation/engine.py`: +60 lines (_process_poaching, new _update_aggregate_wage)
+- `market/job_market.py`: ~20 lines modified (directed search)
+- `config/parameters.py`: +30 lines (6 new parameters)
+- `ui/parameter_panel.py`: +20 lines (5 new UI controls)
+- 2 test assertions updated (market_wage_human no longer fixed at 1.0; Phillips curve test replaced)
+
+### Tests: 154 total, all passing
+- Zero regressions across all prior phases

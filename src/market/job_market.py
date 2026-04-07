@@ -52,18 +52,20 @@ class JobMarket:
         self,
         firms: Dict[int, 'Firm'],
         market_wage_human: float,
-        market_ai_cost: float
+        market_ai_cost: float,
+        unemployment_rate: float = 0.045
     ) -> None:
         """Firms post job vacancies and wages.
         
         Args:
             firms: Dictionary of firm agents
-            market_wage_human: Current market wage for humans
+            market_wage_human: Current market wage for humans (used as reference)
             market_ai_cost: Current market cost per AI unit
+            unemployment_rate: Current unemployment rate (for cyclical wage adjustment)
         """
         for firm_id, firm in firms.items():
-            # Update firm's posted wages
-            firm.post_wages_and_vacancies(market_wage_human)
+            # Update firm's posted wages (MPL-based with cyclical adjustment)
+            firm.post_wages_and_vacancies(market_wage_human, unemployment_rate=unemployment_rate)
             
             # Firm targets output proportional to its human workforce
             output_target = max(1, firm.state.human_workers_employed) * firm.state.human_productivity
@@ -108,11 +110,13 @@ class JobMarket:
         workers: Dict[int, 'Worker'],
         unemployment_rate: float
     ) -> None:
-        """Unemployed workers apply to posted jobs.
+        """Unemployed workers apply to posted jobs using directed search.
         
-        Job application process:
+        Job application process (directed search / Moen 1997):
         - Only unemployed workers apply
         - Each unemployed applies to 2-3 random postings
+        - Application probability is proportional to posted wage
+          (higher-wage firms attract more applicants)
         - Accept/reject determined in matching phase
         
         Args:
@@ -125,21 +129,27 @@ class JobMarket:
             if w.state.status.value == 'unemployed'
         ]
         
-        # Unemployed workers apply to random job postings
+        # Filter to human-only postings and build wage-weighted probabilities
+        human_postings = [p for p in self.job_postings if not p.is_ai]
+        
+        if not human_postings or not unemployed:
+            return
+        
+        # Directed search: probability proportional to posted wage
+        wages = np.array([max(p.wage, 0.01) for p in human_postings])
+        probs = wages / wages.sum()
+        
+        # Unemployed workers apply to random job postings (wage-weighted)
         for worker_id, worker in unemployed:
-            if not self.job_postings:
-                continue
-            
             # Each worker applies to ~2 random positions
-            num_applications = np.random.randint(1, 3)
+            num_applications = min(np.random.randint(1, 3), len(human_postings))
             
-            for _ in range(num_applications):
-                posting = self.job_postings[np.random.randint(0, len(self.job_postings))]
-                
-                # Skip AI "jobs" - only humans apply
-                if posting.is_ai:
-                    continue
-                
+            chosen_indices = np.random.choice(
+                len(human_postings), size=num_applications, replace=False, p=probs
+            )
+            
+            for idx in chosen_indices:
+                posting = human_postings[idx]
                 self.job_applications.append(
                     JobApplication(
                         worker_id=worker_id,

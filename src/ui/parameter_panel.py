@@ -67,6 +67,14 @@ def render_parameter_panel() -> Dict[str, Any]:
             "CES Substitution Elasticity", 0.1, 10.0, cfg.firm_substitution_elasticity, step=0.1,
             help=">1 means human & AI are substitutes.",
         )
+        params["firm_productivity_dispersion"] = st.slider(
+            "Productivity Dispersion (σ)", 0.0, 2.0, cfg.firm_productivity_dispersion, step=0.05,
+            help="Log-normal sigma. Higher = more superstar firms. 0 = identical.",
+        )
+        params["labor_share_of_mpl"] = st.slider(
+            "Labor Share of MPL", 0.1, 0.95, cfg.labor_share_of_mpl, step=0.05,
+            help="Fraction of marginal product paid as wage. Firms keep the rest as markup.",
+        )
         params["output_demand_elasticity"] = st.slider(
             "Output Demand Elasticity", 0.1, 5.0, cfg.output_demand_elasticity, step=0.1,
         )
@@ -84,6 +92,16 @@ def render_parameter_panel() -> Dict[str, Any]:
         params["separation_rate_employed"] = st.slider(
             "Job Separation Rate", 0.0, 0.20, cfg.separation_rate_employed,
             step=0.005, format="%.3f",
+        )
+        params["on_the_job_search_rate"] = st.slider(
+            "On-the-Job Search Rate", 0.0, 0.30, cfg.on_the_job_search_rate,
+            step=0.01, format="%.2f",
+            help="Monthly probability an employed worker samples an outside offer.",
+        )
+        params["poaching_wage_threshold"] = st.slider(
+            "Poaching Wage Threshold", 0.0, 0.30, cfg.poaching_wage_threshold,
+            step=0.01, format="%.2f",
+            help="Minimum wage premium for a worker to switch firms.",
         )
 
     # --- AI ---

@@ -65,7 +65,12 @@ class Firm(Agent):
             entry_period=entry_period,
             r_and_d_efficiency=r_and_d_efficiency
         )
-        self.productivity_draw = np.random.normal(loc=1.0, scale=0.1)
+        # Log-normal productivity: creates right-skewed distribution with superstar firms
+        dispersion = getattr(config, 'firm_productivity_dispersion', 0.5)
+        if dispersion > 0:
+            self.productivity_draw = np.random.lognormal(mean=0.0, sigma=dispersion)
+        else:
+            self.productivity_draw = 1.0
         self.history: List[Dict] = []
     
     def step(self, env) -> None:
@@ -100,7 +105,7 @@ class Firm(Agent):
         self.state.job_openings_ai = ai_demand
         
         # 2. Post wages
-        self.post_wages_and_vacancies(market_wage)
+        self.post_wages_and_vacancies(market_wage, unemployment_rate=getattr(env, 'unemployment_rate', 0.045))
         
         # 3. Hiring happens at market level (via matching function)
         # This is called via hire_workers() after matching
@@ -183,18 +188,45 @@ class Firm(Agent):
         
         return max(0, int(np.round(human_demand))), max(0, int(np.round(ai_demand)))
     
-    def post_wages_and_vacancies(self, market_wage_human: float) -> None:
-        """Post wages and job openings.
+    def compute_mpl_human(self) -> float:
+        """Compute marginal product of human labor.
         
-        Firm sets human wage as slight markup over market wage (wage competition).
-        AI cost is determined by R&D productivity level.
+        From additive production Y = A * (L_H + multiplier * L_AI):
+            MPL_H = A * human_productivity
+            
+        This is the value a firm gets from one additional human worker.
+        
+        Returns:
+            Marginal product of human labor
+        """
+        return self.productivity_draw * self.state.human_productivity
+    
+    def post_wages_and_vacancies(self, market_wage_human: float, unemployment_rate: float = 0.045) -> None:
+        """Post wages based on firm's marginal product of labor.
+        
+        Firm sets human wage as a fraction of its MPL, adjusted by
+        labour market tightness (cyclical Phillips-curve-like effect).
+        Higher-productivity firms naturally post higher wages.
         
         Args:
-            market_wage_human: Prevailing market wage for comparison
+            market_wage_human: Prevailing market wage (used as reference/floor)
+            unemployment_rate: Current unemployment rate (for cyclical adjustment)
         """
-        # Wage markup strategy: post slightly above market to attract workers (or at market)
-        wage_markup = 1.0 + 0.05 * np.random.normal(0, 1)  # ±5% random variation
-        self.state.posted_wage_human = market_wage_human * max(0.9, wage_markup)
+        mpl = self.compute_mpl_human()
+        labor_share = getattr(self.config, 'labor_share_of_mpl', 0.65)
+        
+        # Cyclical adjustment: tight labour market → firms offer more of MPL
+        # At NAIRU (4.5%), adjustment is 0. Below NAIRU → positive. Above → negative.
+        nairu = 0.045
+        tightness_adjustment = -0.5 * (unemployment_rate - nairu)  # ±~2.5% for 5pp gap
+        tightness_adjustment = max(-0.1, min(0.1, tightness_adjustment))  # Cap at ±10%
+        
+        # Base posted wage = MPL × labor_share × (1 + tightness) + small noise
+        noise = 1.0 + 0.02 * np.random.normal(0, 1)  # ±2% idiosyncratic
+        base_wage = mpl * labor_share * (1 + tightness_adjustment) * noise
+        
+        # Floor: never post below 10% of the market average (prevents collapse)
+        self.state.posted_wage_human = max(0.1 * market_wage_human, base_wage)
         
         # AI cost decreases with accumulated R&D
         base_ai_cost = self.config.ai_wage_ratio

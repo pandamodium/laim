@@ -115,6 +115,34 @@ class Worker(Agent):
         
         return accepts
     
+    def evaluate_poaching_offer(self, firm_id: int, wage: float) -> bool:
+        """Evaluate an outside offer while currently employed (on-the-job search).
+        
+        Worker switches if the outside wage exceeds current wage by the
+        poaching threshold. This creates competitive pressure for firms
+        to raise wages as productivity grows.
+        
+        Args:
+            firm_id: ID of poaching firm
+            wage: Offered wage from outside firm
+            
+        Returns:
+            True if worker switches, False otherwise
+        """
+        if self.state.status != WorkerStatus.EMPLOYED:
+            return False
+        
+        threshold = getattr(self.config, 'poaching_wage_threshold', 0.05)
+        
+        # Switch if outside offer exceeds current wage by threshold
+        if wage > self.state.current_wage * (1 + threshold):
+            old_firm_id = self.state.current_firm
+            self.state.current_firm = firm_id
+            self.state.current_wage = wage
+            return True
+        
+        return False
+    
     def consider_entrepreneurship(self) -> bool:
         """Consider starting a business ("animal spirits").
         
