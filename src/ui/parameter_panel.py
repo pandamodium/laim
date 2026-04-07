@@ -167,6 +167,11 @@ def render_parameter_panel() -> Dict[str, Any]:
             "Wage Adjustment Speed", 0.0, 1.0,
             cfg.wage_adjustment_speed, step=0.05,
         )
+        params["downward_wage_rigidity"] = st.slider(
+            "Downward Wage Rigidity", 0.0, 1.0,
+            cfg.downward_wage_rigidity, step=0.05,
+            help="Fraction of upward speed at which wages fall (0=fully rigid, 1=flexible)",
+        )
 
     # --- Policy: Retraining ---
     with st.sidebar.expander("📚 Policy: Retraining", expanded=False):
