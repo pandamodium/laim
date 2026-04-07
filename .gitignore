@@ -5,3 +5,7 @@ ai_labor_market/notebooks/__pycache__/
 ai_labor_market/data/__pycache__/
 ai_labor_market/outputs/
 outputs/
+src/config/__pycache__/
+src/config/__pycache__/*.pyc
+src/simulation/__pycache__/engine.cpython-312.pyc
+src/simulation/__pycache__/

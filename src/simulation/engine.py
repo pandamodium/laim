@@ -126,7 +126,8 @@ class SimulationEngine:
             unemployment_rate,
             natural_unemployment_rate=0.045,
             wage_adjustment_speed=self.config.wage_adjustment_speed,
-            ai_employment_share=ai_share
+            ai_employment_share=ai_share,
+            downward_wage_rigidity=self.config.downward_wage_rigidity
         )
         self.market_wage_human = max(0.1, self.market_wage_human)  # Wage floor
         

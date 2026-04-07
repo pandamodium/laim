@@ -161,6 +161,12 @@ class SimulationConfig(BaseModel):
         le=1,
         description="Speed of wage adjustment toward equilibrium (Phillips curve)"
     )
+    downward_wage_rigidity: float = Field(
+        default=0.3,
+        ge=0,
+        le=1,
+        description="Downward wage rigidity factor (0=fully rigid downward, 1=fully flexible). Wages fall at this fraction of the speed they rise."
+    )
     
     # ========== Retraining Program Parameters ==========
     retraining_program_enabled: bool = Field(
