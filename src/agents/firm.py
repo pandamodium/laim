@@ -63,7 +63,8 @@ class Firm(Agent):
         self.state = FirmState(
             capital=initial_capital,
             entry_period=entry_period,
-            r_and_d_efficiency=r_and_d_efficiency
+            r_and_d_efficiency=r_and_d_efficiency,
+            ai_productivity=config.ai_productivity_multiplier,
         )
         # Log-normal productivity: creates right-skewed distribution with superstar firms
         dispersion = getattr(config, 'firm_productivity_dispersion', 0.5)
@@ -130,17 +131,17 @@ class Firm(Agent):
         cost_ai: float,
         output_target: float
     ) -> tuple[int, int]:
-        """Compute optimal human and AI labor demand using CES production.
+        """Compute optimal human and AI labor demand.
         
-        CES Production Function:
-            Y = A[αL_H^(-σ) + (1-α)L_AI^(-σ)]^(-1/σ)
+        Production function (additive):
+            Y = A * (L_H + m * L_AI)
         
-        where:
-        - σ = (elasticity - 1) / elasticity  (relates elasticity of substitution)
-        - α = share parameter for human labor
-        - A = firm productivity
+        where m = ai_productivity_multiplier.
         
-        This function solves for cost-minimizing labor bundles.
+        Cost minimization uses CES-style smooth substitution to avoid
+        corner solutions (all-human or all-AI).  The ratio L_AI/L_H is
+        derived from a CES first-order condition with the configured
+        elasticity of substitution.
         
         Args:
             wage_human: Wage per human worker
@@ -153,38 +154,27 @@ class Firm(Agent):
         if output_target <= 0 or wage_human <= 0 or cost_ai <= 0:
             return 0, 0
         
-        # CES elasticity of substitution parameter
-        # elasticity of 1.5 means sigma = 1/3 ≈ 0.333
-        sigma = 1.0 / self.config.firm_substitution_elasticity
-        
-        # Solve for optimal labor demand using first-order conditions
-        # From cost minimization: (L_H / L_AI) = [(w_H / w_AI) * ((1-α) / α)]^(σ)
-        
-        # Use α = 0.6 (60% weight to human, 40% to AI) as default
-        alpha = 0.6
-        
-        # Cost ratio
-        cost_ratio = wage_human / max(cost_ai, 0.01)  # Avoid div by zero
-        
-        # Optimal labor ratio using first-order conditions
-        # This is derived from minimizing cost subject to CES production
-        labor_ratio = ((1 - alpha) / alpha * cost_ratio) ** sigma
-        
-        # From production function: Y = A[α*L_H^(-σ) + (1-α)*L_AI^(-σ)]^(-1/σ)
-        # Solve for L_H given L_AI = labor_ratio * L_H
-        # After substitution and algebra:
-        # L_H ≈ output_target / (A * [α^(-1/σ) + (1-α)^(-1/σ) * labor_ratio^(-1/σ)]^(-σ))
-        
-        # Simplified approximation for computational efficiency
         productivity_factor = self.productivity_draw * self.state.human_productivity
+        ai_multiplier = self.config.ai_productivity_multiplier
         
-        # Demand based on output_target and relative prices
-        if labor_ratio > 0:
-            human_demand = output_target / (productivity_factor * 1.5 * (1 + labor_ratio))
-            ai_demand = labor_ratio * human_demand
-        else:
-            human_demand = output_target / (productivity_factor * 1.5)
-            ai_demand = 0
+        # Total effective labor needed: Y / A
+        total_effective = output_target / max(productivity_factor, 0.01)
+        
+        # CES-style substitution ratio (smooth, avoids corners)
+        sigma_sub = self.config.firm_substitution_elasticity  # e.g. 1.5
+        alpha = 0.6  # Human labor share weight
+        
+        # Effective cost of one unit of AI-equivalent labor = cost_ai / m
+        effective_ai_cost = cost_ai / max(ai_multiplier, 0.01)
+        
+        # CES FOC: L_AI/L_H = [(1-α)/α]^σ * (w_H / effective_ai_cost)^σ
+        ai_human_ratio = ((1 - alpha) / alpha) ** sigma_sub * \
+                         (wage_human / max(effective_ai_cost, 0.01)) ** sigma_sub
+        
+        # Split effective labor: L_H + m * (R * L_H) = total_effective
+        # → L_H * (1 + m * R) = total_effective
+        human_demand = total_effective / (1.0 + ai_multiplier * ai_human_ratio)
+        ai_demand = ai_human_ratio * human_demand
         
         return max(0, int(np.round(human_demand))), max(0, int(np.round(ai_demand)))
     
@@ -228,35 +218,33 @@ class Firm(Agent):
         # Floor: never post below 10% of the market average (prevents collapse)
         self.state.posted_wage_human = max(0.1 * market_wage_human, base_wage)
         
-        # AI cost decreases with accumulated R&D
+        # AI cost decreases with accumulated R&D (diminishing returns, floor at 20% of base)
         base_ai_cost = self.config.ai_wage_ratio
         r_and_d_effect = self.state.accumulated_r_and_d * self.config.r_and_d_efficiency
-        self.state.posted_cost_ai = base_ai_cost * np.exp(-r_and_d_effect)
+        max_reduction = 0.8  # R&D can reduce AI cost by at most 80%
+        reduction = max_reduction * (1.0 - np.exp(-r_and_d_effect))
+        self.state.posted_cost_ai = base_ai_cost * (1.0 - reduction)
     
     def hire_workers(self, matched_human: int, matched_ai: int) -> None:
         """Update employment based on matched workers.
+        
+        Separations are handled in worker.step() and reconciled in
+        engine._reconcile_firm_headcounts(). This method only adds
+        newly matched workers.
         
         Args:
             matched_human: Number of human workers matched to this firm
             matched_ai: Number of AI units matched to this firm
         """
-        # Exogenous separation of existing workforce
-        separation_rate = self.config.separation_rate_employed
-        humans_separated = int(np.random.binomial(self.state.human_workers_employed, separation_rate))
-        ai_separated = int(np.random.binomial(self.state.ai_workers_employed, separation_rate))
-        
-        # Update employment
-        self.state.human_workers_employed = max(0, self.state.human_workers_employed - humans_separated + matched_human)
-        self.state.ai_workers_employed = max(0, self.state.ai_workers_employed - ai_separated + matched_ai)
+        # Only add new hires — separations handled via worker.step() + reconciliation
+        self.state.human_workers_employed += matched_human
+        self.state.ai_workers_employed += matched_ai
     
     def produce_output(self) -> float:
         """Produce output given current workforce.
         
         Uses additive production: Y = A * (L_H + multiplier * L_AI)
         where A = firm productivity and multiplier = AI productivity relative to human.
-        
-        This captures AI as a substitute for human labor where each AI unit
-        contributes ai_productivity units of effective labor.
         
         Returns:
             Output quantity produced
@@ -265,6 +253,7 @@ class Firm(Agent):
         productivity = self.productivity_draw * self.state.human_productivity
         
         # Effective labor: human workers + AI-equivalent workers
+        # Use config base multiplier + any R&D bonus accumulated in state
         ai_effective_units = self.state.ai_workers_employed * self.state.ai_productivity
         human_units = self.state.human_workers_employed
         
@@ -363,8 +352,11 @@ class Firm(Agent):
             if benefit['realization_period'] == current_period:
                 ai_cost_reduction, ai_productivity_boost = benefit['output']
                 
-                # Apply productivity boost
-                self.state.ai_productivity += 0.01 * ai_productivity_boost
+                # Apply productivity boost (capped to prevent runaway growth)
+                base_ai_prod = self.config.ai_productivity_multiplier
+                max_ai_prod = base_ai_prod * 3.0  # Cap at 3× the base
+                boost = 0.01 * ai_productivity_boost
+                self.state.ai_productivity = min(max_ai_prod, self.state.ai_productivity + boost)
                 
                 logger.debug(
                     f"Firm {self.agent_id}: Lagged R&D benefit realized in period {current_period}: "

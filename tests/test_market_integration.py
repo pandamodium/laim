@@ -293,12 +293,15 @@ class TestPhase2Integration:
             assert employed_after > initial_unemployed - unemployed_now
     
     def test_unemployment_dynamics_over_time(self):
-        """Test unemployment evolves realistically."""
+        """Test unemployment evolves realistically in a no-AI baseline."""
         config = SimulationConfig(
             simulation_periods=60,
             separation_rate_employed=0.02,
             num_firms=3,
-            matching_efficiency=1.5  # Higher efficiency to find jobs
+            matching_efficiency=1.5,  # Higher efficiency to find jobs
+            ai_productivity_multiplier=0.1,  # AI essentially useless
+            ai_wage_ratio=2.0,               # and expensive
+            ai_initial_adoption_share=0.0,
         )
         
         engine = SimulationEngine(config)
@@ -313,7 +316,6 @@ class TestPhase2Integration:
         mean_unemp = results["unemployment_rate"].mean()
         std_unemp = results["unemployment_rate"].std()
         
-        # With 2% separation and matching, should have measurable unemployment
-        # but not crisis levels. Allow wider range for testing.
-        assert 0.0 <= mean_unemp <= 0.5  # Reasonable stability range
+        # Without AI substitution, unemployment should be low (frictional)
+        assert 0.0 <= mean_unemp <= 0.3  # Reasonable stability range
         assert std_unemp >= 0.0  # May or may not have variation

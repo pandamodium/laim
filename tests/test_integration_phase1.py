@@ -117,7 +117,11 @@ class TestFirmBehavior:
         assert firm.check_exit_condition()  # Should exit after 2 consecutive losses
 
     def test_firm_separation(self):
-        """Test exogenous worker separation."""
+        """Test exogenous worker separation happens in worker.step(), not hire_workers.
+        
+        Separations are now handled by worker.step() and reconciled in the engine.
+        hire_workers() only adds newly matched workers.
+        """
         config = SimulationConfig(separation_rate_employed=0.5)  # 50% monthly
         firm = Firm(firm_id=0, config=config)
         
@@ -125,11 +129,29 @@ class TestFirmBehavior:
         firm.state.ai_workers_employed = 5
         
         np.random.seed(42)
+        # hire_workers no longer separates — it only adds new hires
         firm.hire_workers(matched_human=0, matched_ai=0)
+        assert firm.state.human_workers_employed == 10  # Unchanged (no separations here)
+        assert firm.state.ai_workers_employed == 5
         
-        # With 50% separation, should lose some workers
-        assert firm.state.human_workers_employed < 10
-        assert firm.state.ai_workers_employed < 5
+        # Verify separation works through worker.step() instead
+        worker = Worker(worker_id=99, config=config, skill_level=SkillLevel.LOW)
+        worker.state.status = WorkerStatus.EMPLOYED
+        worker.state.current_firm = 0
+        worker.state.current_wage = 1.0
+        
+        # With 50% separation rate, running many workers guarantees some separate
+        separated = 0
+        for _ in range(20):
+            w = Worker(worker_id=_, config=config)
+            w.state.status = WorkerStatus.EMPLOYED
+            w.state.current_firm = 0
+            w.state.current_wage = 1.0
+            old_status = w.state.status
+            w.step(env=None)
+            if w.state.status == WorkerStatus.UNEMPLOYED:
+                separated += 1
+        assert separated > 0  # At least some should separate with 50% rate
 
 
 class TestWorkerBehavior:

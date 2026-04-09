@@ -67,8 +67,26 @@ class JobMarket:
             # Update firm's posted wages (MPL-based with cyclical adjustment)
             firm.post_wages_and_vacancies(market_wage_human, unemployment_rate=unemployment_rate)
             
-            # Firm targets output proportional to its human workforce
-            output_target = max(1, firm.state.human_workers_employed) * firm.state.human_productivity
+            # Profit-maximizing output target (Cournot with inverse demand)
+            # P = a(1 - Q/Q_max).  Single-firm optimal output:
+            #   q* = Q_max * (a - MC) / (a * (N + 1))
+            # where MC = wage / (A * human_productivity) is marginal cost of output
+            a = getattr(self.config, 'output_price_intercept', 2.0)
+            q_max = getattr(self.config, 'output_market_capacity', 0.0)
+            if q_max <= 0:
+                q_max = 4.0 * self.config.initial_human_workers
+            
+            productivity = firm.productivity_draw * firm.state.human_productivity
+            mc = firm.state.posted_wage_human / max(productivity, 0.01)
+            n_firms = max(1, len(firms))
+            
+            if a > mc:
+                output_target = q_max * (a - mc) / (a * (n_firms + 1))
+            else:
+                # Not profitable at current wages — still try to maintain minimal workforce
+                output_target = max(1.0, firm.state.human_workers_employed * productivity * 0.5)
+            
+            output_target = max(1.0, output_target)
             
             human_demand, ai_demand = firm.compute_labor_demand(
                 firm.state.posted_wage_human,

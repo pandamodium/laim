@@ -72,8 +72,10 @@ class Worker(Agent):
         if self.state.status == WorkerStatus.EMPLOYED and self.state.current_firm is not None:
             separation_prob = self.config.separation_rate_employed
             if np.random.random() < separation_prob:
-                # Worker becomes unemployed
+                # Worker becomes unemployed — firm headcount reconciled in engine
+                # Preserve current_wage as "last wage" so UI benefits are computed correctly
                 self.state.status = WorkerStatus.UNEMPLOYED
+                self.state.current_firm = None
                 self.state.unemployment_duration = 0
         
         # 2. Update unemployment dynamics if unemployed

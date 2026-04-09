@@ -139,6 +139,57 @@ class SimulationEngine:
         r_and_d_discount = min(0.8, 0.01 * avg_r_and_d)  # Cap at 80% reduction
         self.market_ai_cost = self.config.ai_wage_ratio * (1 - r_and_d_discount)
     
+    def _reconcile_firm_headcounts(self) -> None:
+        """Reconcile firm headcount counters with actual worker states.
+        
+        After worker.step() processes separations, the firm's
+        human_workers_employed counter may be stale. This resets
+        each firm's counter to the true number of workers whose
+        current_firm matches.
+        """
+        # Reset all firm counters
+        for firm in self.firms.values():
+            firm.state.human_workers_employed = 0
+        
+        # Count actual workers at each firm
+        for worker in self.workers.values():
+            if (worker.state.status == WorkerStatus.EMPLOYED
+                    and worker.state.current_firm is not None
+                    and worker.state.current_firm in self.firms):
+                self.firms[worker.state.current_firm].state.human_workers_employed += 1
+    
+    def _grow_population(self) -> None:
+        """Add new workers to the labor force based on population growth rate.
+        
+        Converts annual growth rate to monthly and adds new unemployed
+        workers to the simulation each period.
+        """
+        annual_rate = self.config.human_population_growth_rate
+        if annual_rate <= 0:
+            return
+        
+        # Convert annual rate to monthly: (1 + r_annual)^(1/12) - 1
+        monthly_rate = (1 + annual_rate) ** (1.0 / 12.0) - 1.0
+        
+        # Expected new workers this period
+        expected_new = len(self.workers) * monthly_rate
+        
+        # Stochastic rounding: floor + Bernoulli for fractional part
+        n_new = int(expected_new)
+        if np.random.random() < (expected_new - n_new):
+            n_new += 1
+        
+        if n_new <= 0:
+            return
+        
+        # Add new unemployed workers
+        next_id = max(self.workers.keys()) + 1 if self.workers else 0
+        for i in range(n_new):
+            skill = SkillLevel.HIGH if np.random.random() < 0.3 else SkillLevel.LOW
+            worker = Worker(next_id + i, self.config, skill_level=skill)
+            worker.state.status = WorkerStatus.UNEMPLOYED
+            self.workers[next_id + i] = worker
+    
     def _update_worker_reservations(self) -> None:
         """Update worker reservation wages based on unemployment spell."""
         for worker in self.workers.values():
@@ -219,6 +270,9 @@ class SimulationEngine:
             if w.state.status == WorkerStatus.ENTREPRENEUR
         ]
         
+        # Entry cap scales with economy size (~0.2% of workforce per period)
+        max_entries_per_period = max(2, len(self.workers) // 500)
+        
         for worker_id, worker in entrepreneurs:
             # Entry probability: base rate × market conditions
             # Market saturation effect: fewer firms → easier entry
@@ -227,23 +281,22 @@ class SimulationEngine:
             
             entry_prob = saturation_factor  # Stochastic entry (simplified)
             
-            if np.random.random() < entry_prob and new_firms_count < 2:  # Cap entries to avoid cascading
+            if np.random.random() < entry_prob and new_firms_count < max_entries_per_period:
                 # Create new firm
                 new_firm_id = self.next_firm_id
                 self.next_firm_id += 1
                 
-                # Productivity draw for new firm: slightly lower than average incumbent
-                avg_incumbent_productivity = np.mean([
-                    f.state.accumulated_r_and_d for f in self.firms.values()
-                ]) if self.firms else 0.0
-                
-                new_productivity = max(
-                    0.0,
-                    avg_incumbent_productivity + np.random.normal(0, 0.1 * max(0.5, avg_incumbent_productivity))
-                )
-                
                 new_firm = Firm(new_firm_id, self.config, entry_period=self.period)
-                new_firm.state.accumulated_r_and_d = new_productivity
+                
+                # New firm productivity: draw from same distribution as incumbents
+                # but slightly lower on average (entrants are typically less productive)
+                avg_incumbent_prod = np.mean([
+                    f.productivity_draw for f in self.firms.values()
+                ]) if self.firms else 1.0
+                new_firm.productivity_draw = max(
+                    0.3,
+                    avg_incumbent_prod * np.random.normal(0.85, 0.15)
+                )
                 
                 # Employ entrepreneur with new firm
                 worker.state.status = WorkerStatus.EMPLOYED
@@ -258,7 +311,7 @@ class SimulationEngine:
                 
                 logger.debug(
                     f"New firm {new_firm_id} entered with entrepreneur {worker_id} "
-                    f"(productivity: {new_productivity:.3f})"
+                    f"(productivity: {new_firm.productivity_draw:.3f})"
                 )
         
         # Reset entrepreneur status for failed entrants (back to unemployed? or employed elsewhere?)
@@ -302,6 +355,12 @@ class SimulationEngine:
         for worker in self.workers.values():
             worker.step(env=self)
         
+        # 3b. Reconcile firm headcounts with actual worker states
+        self._reconcile_firm_headcounts()
+        
+        # 3c. Population growth (new entrants to labor force)
+        self._grow_population()
+        
         # 4. Clear and setup job market
         self.job_market.clear_market()
         
@@ -315,6 +374,11 @@ class SimulationEngine:
         
         # 6. Workers apply to jobs
         self.job_market.workers_apply(self.workers, self.unemployment_rate)
+        
+        # 6b. Recompute unemployment and vacancy counts AFTER separations and new postings
+        unemployed_count, self.unemployment_rate, employed_count, vacancy_count = (
+            self._compute_market_statistics()
+        )
         
         # 7. Execute matching
         matches = self.job_market.execute_matching(

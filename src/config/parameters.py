@@ -108,9 +108,9 @@ class SimulationConfig(BaseModel):
         description="Multiplier on entrepreneurship rate for unemployed (vs employed)"
     )
     min_capital_to_start_firm: float = Field(
-        default=50.0,
+        default=6.0,
         ge=0,
-        description="Minimum accumulated savings needed to start business"
+        description="Minimum accumulated savings needed to start business (~6 months of wages)"
     )
     new_firm_initial_size: int = Field(
         default=2,
