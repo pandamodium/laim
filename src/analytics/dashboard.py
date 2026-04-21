@@ -414,11 +414,13 @@ class DashboardBuilder:
             )
         
         # Entry/exit
-        if 'firm_entry' in metrics_df.columns and 'firm_exit' in metrics_df.columns:
+        entry_col = next((c for c in ['firm_entry', 'new_firms_entered'] if c in metrics_df.columns), None)
+        exit_col = next((c for c in ['firm_exit', 'firms_exited'] if c in metrics_df.columns), None)
+        if entry_col and exit_col:
             fig.add_trace(
                 go.Bar(
                     x=metrics_df['period'],
-                    y=metrics_df['firm_entry'],
+                    y=metrics_df[entry_col],
                     name='Entry',
                     marker=dict(color='#27ae60'),
                     opacity=0.7
@@ -428,7 +430,7 @@ class DashboardBuilder:
             fig.add_trace(
                 go.Bar(
                     x=metrics_df['period'],
-                    y=metrics_df['firm_exit'],
+                    y=metrics_df[exit_col],
                     name='Exit',
                     marker=dict(color='#e74c3c'),
                     opacity=0.7

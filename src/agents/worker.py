@@ -62,8 +62,9 @@ class Worker(Agent):
         
         Sequence:
         1. If employed, may separate exogenously
-        2. If unemployed, update spell and consider job search/entrepreneurship
-        3. Update reservation wage and savings
+        2. If unemployed, update spell
+        3. All workers with savings consider entrepreneurship
+        4. Employed workers accumulate savings
         
         Args:
             env: Simulation environment
@@ -81,13 +82,16 @@ class Worker(Agent):
         # 2. Update unemployment dynamics if unemployed
         if self.state.status == WorkerStatus.UNEMPLOYED:
             self.update_unemployment_spell()
-            
-            # 3. Consider starting business (only if unemployed with savings)
-            self.consider_entrepreneurship()
         
-        # 4. At employment: accumulate small amount of savings
+        # 3. Consider entrepreneurship (both employed and unemployed)
+        # Employed founders = "opportunity entrepreneurship" (Lazear 2005)
+        # Unemployed founders = "necessity entrepreneurship"
+        if self.state.status in (WorkerStatus.EMPLOYED, WorkerStatus.UNEMPLOYED):
+            avg_profit = getattr(env, '_avg_firm_profit', 0.0) if env else 0.0
+            self.consider_entrepreneurship(avg_profit=avg_profit)
+        
+        # 4. At employment: accumulate savings
         if self.state.status == WorkerStatus.EMPLOYED:
-            # Savings from wages (assume 10% savings rate)
             self.state.accumulated_savings += self.state.current_wage * 0.1
     
     def receive_job_offer(self, firm_id: int, wage: float) -> bool:
@@ -145,43 +149,76 @@ class Worker(Agent):
         
         return False
     
-    def consider_entrepreneurship(self) -> bool:
-        """Consider starting a business ("animal spirits").
+    def consider_entrepreneurship(self, avg_profit: float = 0.0) -> bool:
+        """Consider starting a business.
         
-        Entrepreneurship probability depends on:
-        - Accumulated savings (need minimum capital)
-        - Unemployment status (higher if unemployed)
-        - Base entrepreneurship rate
+        Two channels (following Lazear 2005, Hurst & Lusardi 2004):
         
+        **Opportunity entrepreneurship** (employed workers):
+          - Lower base rate (most people don't quit stable jobs)
+          - Rate rises when market profits are high (opportunity signal)
+          - High-skill workers more likely (jack-of-all-trades theory)
+          - Creates stronger firms (85-115% of incumbent productivity)
+        
+        **Necessity entrepreneurship** (unemployed workers):
+          - Higher base rate (push factor from joblessness)
+          - NOT increasing with unemployment duration (long-term
+            unemployed lose networks and confidence)
+          - Creates weaker firms (60-90% of incumbent productivity)
+        
+        Both channels require minimum capital (savings threshold).
+        
+        Args:
+            avg_profit: Average incumbent firm profit (opportunity signal)
+            
         Returns:
-            True if worker founds business, False otherwise
+            True if worker decides to found a business
         """
         # Must have sufficient capital
         if self.state.accumulated_savings < self.config.min_capital_to_start_firm:
             return False
         
-        # Base rate with unemployment premium
-        if self.state.status == WorkerStatus.UNEMPLOYED:
-            base_rate = (self.config.base_entrepreneurship_rate * 
-                        self.config.entrepreneurship_unemployed_premium)
+        base_rate = self.config.base_entrepreneurship_rate  # Annual rate (e.g. 5%)
+        
+        if self.state.status == WorkerStatus.EMPLOYED:
+            # Opportunity entrepreneurship: employed workers quit to start firms
+            # Much lower rate than unemployed — most don't quit stable jobs
+            # Empirical: ~0.3% of workforce starts firms/year (BLS)
+            rate = base_rate * 0.15  # 0.75% annual → ~0.8 per 1000 workers/month
+            
+            # Opportunity signal: high market profits → more entry
+            # Normalized so avg_profit=0 → no effect, positive → boost
+            if avg_profit > 0:
+                opportunity_boost = min(1.0, 0.02 * avg_profit)  # Up to 2× rate
+                rate *= (1 + opportunity_boost)
+            
+        elif self.state.status == WorkerStatus.UNEMPLOYED:
+            # Necessity entrepreneurship: push factor from unemployment
+            rate = base_rate * self.config.entrepreneurship_unemployed_premium
+            
+            # Decay with long unemployment (lose networks, skills, confidence)
+            # Peak at ~3 months unemployed, then declines
+            if self.state.unemployment_duration > 3:
+                decay = 0.95 ** (self.state.unemployment_duration - 3)
+                rate *= max(0.2, decay)  # Floor at 20% of peak
         else:
-            base_rate = self.config.base_entrepreneurship_rate
+            return False
         
-        # Clamp base_rate to [0, 1] to avoid complex numbers in period conversion
-        base_rate = min(1.0, base_rate)
+        # High-skill workers are more entrepreneurial (Lazear's jack-of-all-trades)
+        if self.state.skill_level == SkillLevel.HIGH:
+            rate *= 1.5
         
-        # Convert annual rate to period rate (monthly)
-        # Formula: period_rate = 1 - (1 - annual_rate)^(1/12)
-        period_rate = 1.0 - (1.0 - base_rate) ** (1.0 / 12.0)
+        # Clamp and convert annual rate to monthly
+        rate = min(1.0, max(0.0, rate))
+        monthly_rate = 1.0 - (1.0 - rate) ** (1.0 / 12.0)
         
         # Stochastic draw
-        founds_business = np.random.random() < period_rate
-        
-        if founds_business:
+        if np.random.random() < monthly_rate:
             self.state.status = WorkerStatus.ENTREPRENEUR
-            self.state.accumulated_savings = 0  # Capital used to start
+            self.state.accumulated_savings = 0  # Capital consumed
+            return True
         
-        return founds_business
+        return False
     
     def update_unemployment_spell(self) -> None:
         """Update unemployment duration, reservation wage, and savings.

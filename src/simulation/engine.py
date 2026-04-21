@@ -42,6 +42,7 @@ class SimulationEngine:
         self.next_firm_id = config.num_firms  # ID counter for new firms
         self.firms_entered_this_period = 0
         self.firms_exited_this_period = 0
+        self._avg_firm_profit = 0.0  # Opportunity signal for entrepreneurship
         
         self._initialize_agents()
     
@@ -252,14 +253,16 @@ class SimulationEngine:
     def _process_entrepreneurship_and_entry(self) -> int:
         """Process entrepreneurship decisions and create new firms.
         
-        Logic:
-        1. Identify entrepreneurs (workers with status == ENTREPRENEUR)
-        2. For each, evaluate whether entry succeeds (stochastic)
-        3. If entry succeeds:
-           - Create new firm with random productivity
-           - Employ entrepreneur with that firm
-           - Initialize firm with small workforce
-        4. Return count of successful entries
+        Workers who decided to become entrepreneurs in worker.step()
+        create firms here. No artificial caps or saturation gates —
+        entry is naturally limited by the savings threshold and
+        stochastic entrepreneurship rate.
+        
+        Firm quality depends on founder type:
+        - Opportunity founders (were employed): stronger firms
+          (85-115% of incumbent median productivity)
+        - Necessity founders (were unemployed): weaker firms
+          (60-90% of incumbent median productivity)
         
         Returns:
             Number of new firms entered
@@ -270,57 +273,51 @@ class SimulationEngine:
             if w.state.status == WorkerStatus.ENTREPRENEUR
         ]
         
-        # Entry cap scales with economy size (~0.2% of workforce per period)
-        max_entries_per_period = max(2, len(self.workers) // 500)
+        # Median incumbent productivity as reference
+        median_incumbent_prod = float(np.median([
+            f.productivity_draw for f in self.firms.values()
+        ])) if self.firms else 1.0
         
         for worker_id, worker in entrepreneurs:
-            # Entry probability: base rate × market conditions
-            # Market saturation effect: fewer firms → easier entry
-            market_saturation = len(self.firms) / max(5, self.config.num_firms + 10)
-            saturation_factor = 1.0 - min(0.5, 0.5 * market_saturation)
+            new_firm_id = self.next_firm_id
+            self.next_firm_id += 1
             
-            entry_prob = saturation_factor  # Stochastic entry (simplified)
+            new_firm = Firm(new_firm_id, self.config, entry_period=self.period)
             
-            if np.random.random() < entry_prob and new_firms_count < max_entries_per_period:
-                # Create new firm
-                new_firm_id = self.next_firm_id
-                self.next_firm_id += 1
-                
-                new_firm = Firm(new_firm_id, self.config, entry_period=self.period)
-                
-                # New firm productivity: draw from same distribution as incumbents
-                # but slightly lower on average (entrants are typically less productive)
-                avg_incumbent_prod = np.mean([
-                    f.productivity_draw for f in self.firms.values()
-                ]) if self.firms else 1.0
+            # Firm quality depends on how the entrepreneur entered
+            # Use current_wage as a proxy: workers who had a wage were employed
+            was_employed = worker.state.current_wage > 0
+            
+            if was_employed:
+                # Opportunity entrepreneur: draw centered at incumbent median
                 new_firm.productivity_draw = max(
                     0.3,
-                    avg_incumbent_prod * np.random.normal(0.85, 0.15)
+                    median_incumbent_prod * np.random.normal(1.0, 0.15)
                 )
-                
-                # Employ entrepreneur with new firm
-                worker.state.status = WorkerStatus.EMPLOYED
-                worker.state.current_firm = new_firm_id
-                worker.state.current_wage = new_firm.compute_mpl_human() * self.config.labor_share_of_mpl
-                worker.state.accumulated_savings = 0  # Capital used
-                new_firm.state.human_workers_employed = 1  # Entrepreneur counts as employee
-                
-                # Add to active firms
-                self.firms[new_firm_id] = new_firm
-                new_firms_count += 1
-                
-                logger.debug(
-                    f"New firm {new_firm_id} entered with entrepreneur {worker_id} "
-                    f"(productivity: {new_firm.productivity_draw:.3f})"
+            else:
+                # Necessity entrepreneur: weaker firm
+                new_firm.productivity_draw = max(
+                    0.2,
+                    median_incumbent_prod * np.random.normal(0.75, 0.15)
                 )
-        
-        # Reset entrepreneur status for failed entrants (back to unemployed? or employed elsewhere?)
-        for worker_id, worker in entrepreneurs:
-            if worker.state.status == WorkerStatus.ENTREPRENEUR:
-                # Entry failed - return to unemployed
-                worker.state.status = WorkerStatus.UNEMPLOYED
-                worker.state.unemployment_duration = 0
-                logger.debug(f"Entrepreneurship attempt by {worker_id} failed, returning to unemployment")
+            
+            # High-skill founders get a small productivity bonus
+            if worker.state.skill_level == SkillLevel.HIGH:
+                new_firm.productivity_draw *= 1.1
+            
+            # Employ entrepreneur with new firm
+            worker.state.status = WorkerStatus.EMPLOYED
+            worker.state.current_firm = new_firm_id
+            worker.state.current_wage = new_firm.compute_mpl_human() * self.config.labor_share_of_mpl
+            new_firm.state.human_workers_employed = 1
+            
+            self.firms[new_firm_id] = new_firm
+            new_firms_count += 1
+            
+            logger.debug(
+                f"New firm {new_firm_id} entered by {'opportunity' if was_employed else 'necessity'} "
+                f"entrepreneur {worker_id} (productivity: {new_firm.productivity_draw:.3f})"
+            )
         
         return new_firms_count
     
@@ -417,6 +414,9 @@ class SimulationEngine:
             
             # Apply lagged R&D benefits (Phase 4: benefits from 2+ periods ago)
             firm.apply_lagged_r_and_d_benefits(current_period=self.period)
+        
+        # Update opportunity signal for next period's entrepreneurship decisions
+        self._avg_firm_profit = total_profit / max(1, len(self.firms))
         
         # 10. Process firm exits (and entry handled in business formation)
         firms_to_remove = [
@@ -569,6 +569,13 @@ class SimulationEngine:
         total_profit = sum(f.state.profits for f in self.firms.values())
         avg_firm_size = employed_human / max(1, len(self.firms)) if self.firms else 0
         
+        # Market concentration (Herfindahl index)
+        firm_sizes = [f.state.human_workers_employed for f in self.firms.values()]
+        if firm_sizes and employed_human > 0:
+            herfindahl_index = sum((s / employed_human) ** 2 for s in firm_sizes)
+        else:
+            herfindahl_index = 0.0
+        
         # Productivity
         output_per_worker = self.total_output / max(1, total_employment)
         
@@ -592,6 +599,7 @@ class SimulationEngine:
             "total_profit": total_profit,
             "total_r_and_d_spending": total_r_and_d_spending,
             "avg_firm_size": avg_firm_size,
+            "herfindahl_index": herfindahl_index,
             "output_per_worker": output_per_worker,
             "ai_cost_index": self.market_ai_cost,
             "market_wage_human": self.market_wage_human,
