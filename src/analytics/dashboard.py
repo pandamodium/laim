@@ -366,6 +366,114 @@ class DashboardBuilder:
         
         return fig
     
+    def create_profitability_dashboard(
+        self,
+        metrics_df: pd.DataFrame,
+        save: bool = True,
+        filename: str = 'profitability_dashboard.html'
+    ) -> go.Figure:
+        """
+        Create interactive profitability & revenue dashboard.
+        
+        Features: Total revenue, total profit, avg profit per firm, profit margin.
+        
+        Args:
+            metrics_df: DataFrame with simulation metrics
+            save: Whether to save the dashboard
+            filename: Output filename
+            
+        Returns:
+            Plotly Figure object
+        """
+        fig = make_subplots(
+            rows=2, cols=2,
+            subplot_titles=(
+                'Total Revenue',
+                'Total Profit',
+                'Average Profit per Firm',
+                'Profit Margin (%)'
+            ),
+            specs=[
+                [{'type': 'scatter'}, {'type': 'scatter'}],
+                [{'type': 'scatter'}, {'type': 'scatter'}]
+            ]
+        )
+        
+        # Total Revenue
+        if 'total_revenue' in metrics_df.columns:
+            fig.add_trace(
+                go.Scatter(
+                    x=metrics_df['period'],
+                    y=metrics_df['total_revenue'],
+                    mode='lines',
+                    name='Total Revenue',
+                    line=dict(color='#27ae60', width=2),
+                    fill='tozeroy'
+                ),
+                row=1, col=1
+            )
+        
+        # Total Profit
+        if 'total_profit' in metrics_df.columns:
+            fig.add_trace(
+                go.Scatter(
+                    x=metrics_df['period'],
+                    y=metrics_df['total_profit'],
+                    mode='lines',
+                    name='Total Profit',
+                    line=dict(color='#3498db', width=2),
+                    fill='tozeroy'
+                ),
+                row=1, col=2
+            )
+        
+        # Average Profit per Firm
+        if 'avg_profit_per_firm' in metrics_df.columns:
+            fig.add_trace(
+                go.Scatter(
+                    x=metrics_df['period'],
+                    y=metrics_df['avg_profit_per_firm'],
+                    mode='lines',
+                    name='Avg Profit/Firm',
+                    line=dict(color='#9b59b6', width=2)
+                ),
+                row=2, col=1
+            )
+        
+        # Profit Margin (%)
+        if 'total_revenue' in metrics_df.columns and 'total_profit' in metrics_df.columns:
+            margin = (metrics_df['total_profit'] / metrics_df['total_revenue'].replace(0, float('nan'))) * 100
+            fig.add_trace(
+                go.Scatter(
+                    x=metrics_df['period'],
+                    y=margin,
+                    mode='lines',
+                    name='Profit Margin %',
+                    line=dict(color='#f39c12', width=2)
+                ),
+                row=2, col=2
+            )
+        
+        fig.update_layout(
+            title_text="Profitability & Revenue Dashboard",
+            showlegend=True,
+            height=self.config.height + 100,
+            template=self.config.template,
+            hovermode='x unified'
+        )
+        
+        fig.update_yaxes(title_text="$", row=1, col=1)
+        fig.update_yaxes(title_text="$", row=1, col=2)
+        fig.update_yaxes(title_text="$/firm", row=2, col=1)
+        fig.update_yaxes(title_text="%", row=2, col=2)
+        fig.update_xaxes(title_text="Period", row=2, col=1)
+        fig.update_xaxes(title_text="Period", row=2, col=2)
+        
+        if save:
+            self._save_dashboard(fig, filename)
+        
+        return fig
+    
     def create_firm_dynamics_dashboard(
         self,
         metrics_df: pd.DataFrame,

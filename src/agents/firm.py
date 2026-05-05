@@ -21,6 +21,7 @@ class FirmState:
     posted_wage_human: float = 1.0
     posted_cost_ai: float = 0.5
     output_produced: float = 0.0
+    revenue: float = 0.0
     profits: float = 0.0
     losses_consecutive: int = 0
     capital: float = 0.0
@@ -280,6 +281,7 @@ class Firm(Agent):
                       self.state.posted_cost_ai * self.state.ai_workers_employed)
         
         profit = revenue - labor_costs
+        self.state.revenue = revenue
         self.state.profits = profit
         
         # Track loss streak for exit condition

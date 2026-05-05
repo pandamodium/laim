@@ -102,6 +102,13 @@ def render_dashboard(metrics_df: pd.DataFrame) -> None:
         fig.update_layout(height=500)
         st.plotly_chart(fig, use_container_width=True)
 
+    # Profitability & Revenue
+    if "total_profit" in metrics_df.columns:
+        st.subheader("Profitability & Revenue")
+        fig = builder.create_profitability_dashboard(metrics_df, save=False)
+        fig.update_layout(height=500)
+        st.plotly_chart(fig, use_container_width=True)
+
     # Inequality
     has_ineq = any(
         c in metrics_df.columns

@@ -566,7 +566,9 @@ class SimulationEngine:
         )
         
         # Firm metrics
+        total_revenue = sum(f.state.revenue for f in self.firms.values())
         total_profit = sum(f.state.profits for f in self.firms.values())
+        avg_profit_per_firm = total_profit / max(1, len(self.firms)) if self.firms else 0
         avg_firm_size = employed_human / max(1, len(self.firms)) if self.firms else 0
         
         # Market concentration (Herfindahl index)
@@ -596,7 +598,9 @@ class SimulationEngine:
             "avg_wage_ai": avg_ai_cost,
             "ai_employment_share": ai_employment_share,
             "total_output": self.total_output,
+            "total_revenue": total_revenue,
             "total_profit": total_profit,
+            "avg_profit_per_firm": avg_profit_per_firm,
             "total_r_and_d_spending": total_r_and_d_spending,
             "avg_firm_size": avg_firm_size,
             "herfindahl_index": herfindahl_index,
