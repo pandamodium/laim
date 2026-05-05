@@ -183,6 +183,23 @@ source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+## Running the Streamlit Dashboard
+
+The interactive dashboard lets you configure parameters, run simulations, compare scenarios, and explore results visually.
+
+```bash
+# From the ai_labor_market/ directory
+streamlit run app.py
+```
+
+This opens the app in your browser (default `http://localhost:8501`). From the dashboard you can:
+
+- **Configure parameters** — adjust firm count, labor supply, AI settings, CES elasticity, policy levers, etc.
+- **Run simulations** — execute with live progress streaming
+- **Compare scenarios** — save named scenarios and view side-by-side comparisons
+- **Browse past runs** — reload results from `outputs/runs/`
+- **Export data** — download metrics as CSV
+
 ### Phase 5: Advanced Economics ✅
 - **Policy Interventions**: UI benefits, retraining programs, wage subsidies, tax credits
 - **Skill-Based Technical Change**: Job categories (Routine/Management/Creative) with differential AI substitutability
