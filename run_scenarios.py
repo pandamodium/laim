@@ -34,6 +34,7 @@ SCENARIOS = {
     "1_No_AI": {
         "description": "Counterfactual: no meaningful AI adoption",
         "params": dict(
+            num_firms=10,
             ai_productivity_multiplier=0.1,   # AI essentially useless
             ai_wage_ratio=2.0,                # and expensive
             ai_initial_adoption_share=0.0,
@@ -44,6 +45,7 @@ SCENARIOS = {
     "2_Moderate_AI": {
         "description": "Current trajectory: moderate AI capability and gradual adoption",
         "params": dict(
+            num_firms=10,
             ai_productivity_multiplier=1.5,
             ai_wage_ratio=0.5,
             ai_initial_adoption_share=0.1,
@@ -54,6 +56,7 @@ SCENARIOS = {
     "3_Aggressive_AI": {
         "description": "Rapid AI progress: highly capable and cheap AI",
         "params": dict(
+            num_firms=10,
             ai_productivity_multiplier=3.0,   # AI 3× as productive as humans
             ai_wage_ratio=0.25,               # and very cheap
             ai_initial_adoption_share=0.15,
@@ -65,6 +68,7 @@ SCENARIOS = {
     "4_AI_as_Complement": {
         "description": "AI augments humans: low substitutability, productivity boost",
         "params": dict(
+            num_firms=10,
             ai_productivity_multiplier=2.0,
             ai_wage_ratio=0.5,
             ai_initial_adoption_share=0.1,
@@ -76,6 +80,7 @@ SCENARIOS = {
     "5_Aggressive_AI_Policy": {
         "description": "Aggressive AI + active policy response (retraining + subsidies)",
         "params": dict(
+            num_firms=10,
             ai_productivity_multiplier=3.0,
             ai_wage_ratio=0.25,
             ai_initial_adoption_share=0.15,
@@ -96,12 +101,12 @@ SCENARIOS = {
     "6_Superstar_Economy": {
         "description": "Aggressive AI + high firm dispersion → winner-take-most",
         "params": dict(
+            num_firms=10,
             ai_productivity_multiplier=3.0,
             ai_wage_ratio=0.25,
             ai_initial_adoption_share=0.15,
             firm_substitution_elasticity=2.0,
             firm_productivity_dispersion=1.0, # much higher dispersion (default 0.5)
-            num_firms=6,                      # more firms to see dispersion
             simulation_periods=240,
             random_seed=42,
         ),

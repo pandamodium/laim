@@ -55,6 +55,18 @@ class SimulationConfig(BaseModel):
         le=0.1,
         description="Annual growth rate of human population (enters labor supply)"
     )
+    human_productivity_growth_rate: float = Field(
+        default=0.015,
+        ge=0,
+        le=0.1,
+        description="Annual baseline growth rate of human productivity (education, experience, tools). AI augmentation provides additional boost."
+    )
+    ai_augmentation_factor: float = Field(
+        default=0.3,
+        ge=0,
+        le=1.0,
+        description="How much AI coworkers boost human productivity. At AI_share=50%, human productivity grows an extra augmentation_factor * AI_share per year. Reflects humans using AI tools to be more effective."
+    )
     separation_rate_employed: float = Field(
         default=0.02,
         ge=0,
@@ -84,7 +96,7 @@ class SimulationConfig(BaseModel):
     ai_wage_ratio: float = Field(
         default=0.5,
         ge=0,
-        le=2,
+        le=5,
         description="AI cost-per-unit as ratio of human wage (captures hardware + electricity)"
     )
     ai_initial_adoption_share: float = Field(
@@ -92,6 +104,12 @@ class SimulationConfig(BaseModel):
         ge=0,
         le=1,
         description="Initial AI employment share (as fraction of total workforce)"
+    )
+    ai_adoption_speed: float = Field(
+        default=0.05,
+        ge=0.01,
+        le=1.0,
+        description="Maximum fraction of desired AI expansion a firm can achieve per period. Reflects implementation friction (integration, training, infrastructure). 0.05 = firms can add at most 5% of desired AI increase per month."
     )
     
     # ========== Entrepreneurship Parameters ==========
@@ -314,22 +332,48 @@ class SimulationConfig(BaseModel):
     
     # ========== Firm Exit Parameters ==========
     loss_periods_to_exit: int = Field(
-        default=2,
+        default=6,
         ge=1,
-        le=12,
-        description="Number of consecutive loss periods before firm exits"
+        le=24,
+        description="Number of consecutive loss periods before firm exits. 6 months reflects real-world firms using capital reserves to survive downturns."
     )
     
     # ========== Output Market Parameters ==========
     output_market_capacity: float = Field(
         default=0.0,
         ge=0,
-        description="Market capacity Q_max for inverse demand. If 0, auto-scaled to 2x initial workforce."
+        description="Market capacity Q_max for inverse demand. If 0, auto-scaled to 4x initial workforce."
     )
     output_price_intercept: float = Field(
         default=2.0,
         ge=0.1,
         description="Max willingness-to-pay (demand intercept). Must exceed wage for firm viability."
+    )
+    demand_growth_rate: float = Field(
+        default=0.03,
+        ge=0.0,
+        le=0.2,
+        description="Annual rate at which output market capacity grows (new products, markets, export demand). Reflects Say's Law: productivity gains create new demand over time."
+    )
+    
+    # ========== New Task Creation (Acemoglu-Restrepo mechanism) ==========
+    human_task_floor: float = Field(
+        default=0.40,
+        ge=0.0,
+        le=0.8,
+        description="Minimum share of effective labor that must come from humans (oversight, creativity, physical presence, relationship management). Based on OECD estimates that ~40-50% of tasks genuinely require human judgment, creativity, or physical presence."
+    )
+    new_task_creation_rate: float = Field(
+        default=0.002,
+        ge=0.0,
+        le=0.05,
+        description="Monthly rate at which new human-requiring tasks emerge as the economy grows (AI trainers, oversight roles, creative tasks). Represents Acemoglu-Restrepo reinstatement effect."
+    )
+    human_task_floor_max: float = Field(
+        default=0.65,
+        ge=0.0,
+        le=0.9,
+        description="Maximum value the human task floor can grow to via new task creation. Reflects that most complex tasks ultimately need human involvement."
     )
     
     # ========== Simulation Parameters ==========

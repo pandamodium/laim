@@ -144,6 +144,11 @@ class Firm(Agent):
         derived from a CES first-order condition with the configured
         elasticity of substitution.
         
+        A human task floor enforces that a minimum share of total labor
+        must be human (representing oversight, creativity, physical tasks,
+        relationship management — tasks that AI cannot automate). This
+        implements the Acemoglu & Restrepo "new task creation" mechanism.
+        
         Args:
             wage_human: Wage per human worker
             cost_ai: Cost per AI unit
@@ -176,6 +181,17 @@ class Firm(Agent):
         # → L_H * (1 + m * R) = total_effective
         human_demand = total_effective / (1.0 + ai_multiplier * ai_human_ratio)
         ai_demand = ai_human_ratio * human_demand
+        
+        # Enforce human task floor: some tasks MUST be done by humans
+        # (oversight, creativity, physical presence, relationship management)
+        human_task_floor = getattr(self.config, 'human_task_floor', 0.20)
+        total_workers = human_demand + ai_demand
+        if total_workers > 0:
+            human_share = human_demand / total_workers
+            if human_share < human_task_floor:
+                # Redistribute: humans get at least the floor share
+                human_demand = total_workers * human_task_floor
+                ai_demand = total_workers * (1.0 - human_task_floor)
         
         return max(0, int(np.round(human_demand))), max(0, int(np.round(ai_demand)))
     

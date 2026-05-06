@@ -38,6 +38,15 @@ class SimulationEngine:
         self.total_output = 0.0
         self.unemployment_rate = 0.0
         
+        # Demand growth tracking (grows endogenously with economy)
+        self._base_market_capacity = config.output_market_capacity
+        if self._base_market_capacity <= 0:
+            self._base_market_capacity = 4.0 * config.initial_human_workers
+        self._current_market_capacity = self._base_market_capacity
+        
+        # New task creation tracking (Acemoglu-Restrepo mechanism)
+        self._current_human_task_floor = config.human_task_floor
+        
         # Business formation tracking
         self.next_firm_id = config.num_firms  # ID counter for new firms
         self.firms_entered_this_period = 0
@@ -190,6 +199,102 @@ class SimulationEngine:
             worker = Worker(next_id + i, self.config, skill_level=skill)
             worker.state.status = WorkerStatus.UNEMPLOYED
             self.workers[next_id + i] = worker
+    
+    def _grow_demand(self) -> None:
+        """Grow output market capacity over time.
+        
+        Two components:
+        1. Baseline growth (3% annual — new products, export markets)
+        2. Endogenous response to output growth: when production rises faster
+           than demand, it signals new products being created (phones, apps,
+           streaming, etc.) that expand the market.
+        
+        This prevents the "output glut" problem where AI productivity gains
+        crash prices because demand doesn't keep up.
+        """
+        annual_rate = self.config.demand_growth_rate
+        if annual_rate <= 0:
+            return
+        
+        monthly_rate = (1 + annual_rate) ** (1.0 / 12.0) - 1.0
+        
+        # Endogenous component: if output is approaching capacity,
+        # demand expands faster (new products absorb production)
+        utilization = self.total_output / max(1.0, self._current_market_capacity)
+        if utilization > 0.5:
+            # Above 50% utilization: demand grows faster to absorb output
+            endogenous_boost = monthly_rate * (utilization - 0.5) * 2.0
+        else:
+            endogenous_boost = 0.0
+        
+        self._current_market_capacity *= (1.0 + monthly_rate + endogenous_boost)
+    
+    def _update_new_task_creation(self) -> None:
+        """Update the human task floor based on economic complexity.
+        
+        As the economy grows and becomes more complex, new tasks emerge
+        that require human input (AI oversight, creative direction,
+        relationship management, ethical judgment, novel problem-solving).
+        
+        This implements the key Acemoglu & Restrepo (2018) insight:
+        technology displaces workers from OLD tasks but creates NEW tasks
+        where humans have comparative advantage.
+        
+        The rate of new task creation accelerates with AI adoption (more AI
+        = more need for human oversight and new human-AI interface roles).
+        """
+        base_rate = self.config.new_task_creation_rate
+        max_floor = self.config.human_task_floor_max
+        
+        if base_rate <= 0 or self._current_human_task_floor >= max_floor:
+            return
+        
+        # New task creation rate scales with AI share of employment
+        total_ai = sum(f.state.ai_workers_employed for f in self.firms.values())
+        total_human = sum(f.state.human_workers_employed for f in self.firms.values())
+        total_emp = total_ai + total_human
+        ai_share = total_ai / max(1, total_emp)
+        
+        # Higher AI adoption → faster new task creation (need more oversight, etc.)
+        effective_rate = base_rate * (1.0 + ai_share)
+        
+        self._current_human_task_floor = min(
+            max_floor,
+            self._current_human_task_floor + effective_rate
+        )
+        
+        # Update config so firms see the new floor
+        self.config.human_task_floor = self._current_human_task_floor
+    
+    def _update_human_productivity(self) -> None:
+        """Update human productivity across all firms.
+        
+        Two components:
+        1. Baseline growth (education, general tech progress): ~1.5% annual
+        2. AI augmentation: humans working alongside AI become more productive.
+           Higher AI share → larger productivity boost.
+           This is the key mechanism through which AI RAISES wages.
+        
+        Example: A financial analyst with AI tools can process 3× more data,
+        a developer with Copilot writes code 2× faster, etc.
+        """
+        base_annual = self.config.human_productivity_growth_rate
+        augmentation = self.config.ai_augmentation_factor
+        
+        # Convert to monthly
+        base_monthly = (1 + base_annual) ** (1.0 / 12.0) - 1.0
+        
+        for firm in self.firms.values():
+            # AI augmentation: more AI coworkers → humans more productive
+            total_emp = firm.state.human_workers_employed + firm.state.ai_workers_employed
+            ai_share = firm.state.ai_workers_employed / max(1, total_emp)
+            
+            # Augmentation effect (diminishing returns via sqrt)
+            ai_boost_monthly = augmentation * (ai_share ** 0.5) / 12.0
+            
+            # Total monthly growth
+            growth = 1.0 + base_monthly + ai_boost_monthly
+            firm.state.human_productivity *= growth
     
     def _update_worker_reservations(self) -> None:
         """Update worker reservation wages based on unemployment spell."""
@@ -358,6 +463,15 @@ class SimulationEngine:
         # 3c. Population growth (new entrants to labor force)
         self._grow_population()
         
+        # 3d. Demand growth (new products, markets, export demand)
+        self._grow_demand()
+        
+        # 3e. New task creation (Acemoglu-Restrepo mechanism)
+        self._update_new_task_creation()
+        
+        # 3f. Human productivity growth (education + AI augmentation)
+        self._update_human_productivity()
+        
         # 4. Clear and setup job market
         self.job_market.clear_market()
         
@@ -366,7 +480,8 @@ class SimulationEngine:
             self.firms,
             self.market_wage_human,
             self.market_ai_cost,
-            unemployment_rate=self.unemployment_rate
+            unemployment_rate=self.unemployment_rate,
+            current_market_capacity=self._current_market_capacity
         )
         
         # 6. Workers apply to jobs
@@ -489,13 +604,13 @@ class SimulationEngine:
         
         P = a - a * (Q / Q_max)  where a = price intercept
         
+        Q_max grows over time via _grow_demand(), reflecting
+        expanding markets and new product categories.
+        
         Returns:
             Output price
         """
-        q_max = self.config.output_market_capacity
-        if q_max <= 0:
-            # Auto-scale: capacity = 4× initial workforce
-            q_max = 4.0 * self.config.initial_human_workers
+        q_max = self._current_market_capacity
         
         a = self.config.output_price_intercept
         q_supplied = self.total_output

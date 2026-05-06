@@ -1,16 +1,30 @@
 # LAIM Roadmap
 
-Remaining implementation work for phases 6–8, building on the completed foundation (Phases 1–5) and the competitive wage mechanism.
+Remaining implementation work, building on the completed foundation (Phases 1–6) and the macroeconomic realism mechanisms.
 
-**Current Status**: Phases 1–5 complete. Competitive wage mechanism & superstar firms complete (154 tests passing). Phases 6–8 partially implemented.
+**Current Status**: Phases 1–6 complete. Macroeconomic realism (demand growth, new task creation, AI augmentation, gradual adoption) implemented. Full 6-scenario analysis operational with economically coherent results. Phases 7–8 partially implemented.
 
 ---
 
-## Phase 6: Comprehensive Metrics & Analytics
+## Completed Phases
 
-### 6.1 Metrics Collection
+- **Phase 1**: Foundation — Core agents (Firm, Worker, AI)
+- **Phase 2**: Market Integration — JobMarket, SimulationEngine, matching
+- **Phase 3**: Business Formation — Entrepreneurship, firm entry/exit
+- **Phase 4**: AI Adoption & Innovation — R&D with lagged benefits
+- **Phase 5**: Advanced Economics — Policies, skills, AI cost curves
+- **Phase 5+**: Competitive Wages — MPL-based posting, poaching, superstar firms
+- **Phase 6**: Macroeconomic Realism — Demand growth, new task creation, AI augmentation, gradual adoption, policy integration
 
-Expand metrics beyond current level to enable detailed analysis.
+---
+
+## Phase 6: Comprehensive Metrics & Analytics ✅ (Partially)
+
+### 6.1 Metrics Collection — ✅ Done
+
+Current metrics per period: `period`, `num_firms`, `num_employed_human`, `num_employed_ai`, `num_unemployed`, `unemployment_rate`, `avg_wage_human`, `total_output`, `total_profit`, `job_vacancies`, `job_matches`, `new_firms_entered`, `firms_exited`, `avg_firm_size`.
+
+### 6.2 Remaining Metrics Work
 
 **Labor Market Metrics**:
 - Unemployment by skill level / job category
@@ -89,34 +103,41 @@ Expand metrics beyond current level to enable detailed analysis.
 - Phase interactions: business formation + R&D, policies + labor market, metrics consistency
 - Reproducibility: same seed → same results
 
-### 8.2 Benchmark Simulations
+### 8.2 Benchmark Simulations ✅ Done
 
 | Scenario | Description |
 |----------|-------------|
-| **Baseline** | No policy, default parameters, 240 periods |
-| **High AI** | AI productivity 2.0× (vs 1.5×), AI cost 0.3× (vs 0.5×) |
-| **Policy** | UI at 60%, retraining active, R&D tax credit 25% |
-| **Sectoral Shift** | Unequal AI exposure across sectors |
+| **No AI** | Counterfactual: AI useless and expensive |
+| **Moderate AI** | Current trajectory: productivity 1.5×, cost 0.5× |
+| **Aggressive AI** | Rapid progress: productivity 3×, cost 0.25×, high elasticity |
+| **AI as Complement** | Low substitutability (σ=0.5): AI augments rather than replaces |
+| **Aggressive AI + Policy** | High AI + retraining + subsidies + R&D credits |
+| **Superstar Economy** | High AI + high firm dispersion (winner-take-most) |
 
-### 8.3 Sensitivity Analysis
+All scenarios use `num_firms=10`, `simulation_periods=240`, `random_seed=42`.
 
-Parameters to sweep:
-- `num_firms` (2, 3, 5, 10)
+### 8.3 Remaining Benchmark Work
+
+### 8.3 Remaining Benchmark Work
+
+**Sensitivity Analysis** — Parameters to sweep:
+- `num_firms` (3, 5, 10, 20)
 - `ai_productivity_multiplier` (1.2, 1.5, 2.0, 3.0)
+- `human_task_floor` (0.20, 0.30, 0.40, 0.50)
+- `demand_growth_rate` (0.01, 0.03, 0.05)
+- `ai_adoption_speed` (0.02, 0.05, 0.10, 0.20)
+- `ai_augmentation_factor` (0.1, 0.3, 0.5)
+- `new_task_creation_rate` (0.0, 0.001, 0.002, 0.005)
 - `firm_productivity_dispersion` (0.0, 0.3, 0.5, 1.0)
-- `labor_share_of_mpl` (0.5, 0.65, 0.8)
-- `on_the_job_search_rate` (0.0, 0.05, 0.10, 0.20)
-- `poaching_wage_threshold` (0.0, 0.05, 0.10)
-- `downward_wage_rigidity` (0.0, 0.3, 0.5, 1.0)
-- `r_and_d_lag_periods` (1, 2, 3, 4)
-- `entrepreneurship_rate` (0.02, 0.05, 0.10)
-- `matching_efficiency` (0.5, 1.0, 1.5)
+- `loss_periods_to_exit` (2, 4, 6, 12)
 
 Output: sensitivity matrices, tornado diagrams, spider plots
 
-### 8.4 Documentation & Publication
+### 8.4 Future Research Extensions
 
-- **Technical Manual** (30–40 pages): model description, equations, parameters, implementation, calibration & validation
-- **User Guide** (10–15 pages): installation, running simulations, interpreting results, common use cases
-- **Economics Paper** (20–30 pages): research question, literature review, model and results, policy implications
-- **Results Package**: 10–15 key tables, 15–20 publication-ready figures
+- **Sectoral heterogeneity**: Multiple sectors with different AI exposure (routine vs creative)
+- **International trade**: Open economy with import competition and export demand
+- **Wealth inequality**: Track wealth distribution, not just wages
+- **Transition dynamics**: More granular modeling of retraining pathways
+- **Generational effects**: Young vs old workers with different adaptation capabilities
+- **Network effects**: Firm-to-firm supply chains and knowledge spillovers

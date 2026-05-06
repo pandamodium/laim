@@ -53,7 +53,8 @@ class JobMarket:
         firms: Dict[int, 'Firm'],
         market_wage_human: float,
         market_ai_cost: float,
-        unemployment_rate: float = 0.045
+        unemployment_rate: float = 0.045,
+        current_market_capacity: float = 0.0
     ) -> None:
         """Firms post job vacancies and wages.
         
@@ -62,6 +63,7 @@ class JobMarket:
             market_wage_human: Current market wage for humans (used as reference)
             market_ai_cost: Current market cost per AI unit
             unemployment_rate: Current unemployment rate (for cyclical wage adjustment)
+            current_market_capacity: Current output market capacity (may grow over time)
         """
         for firm_id, firm in firms.items():
             # Update firm's posted wages (MPL-based with cyclical adjustment)
@@ -72,7 +74,7 @@ class JobMarket:
             #   q* = Q_max * (a - MC) / (a * (N + 1))
             # where MC = wage / (A * human_productivity) is marginal cost of output
             a = getattr(self.config, 'output_price_intercept', 2.0)
-            q_max = getattr(self.config, 'output_market_capacity', 0.0)
+            q_max = current_market_capacity
             if q_max <= 0:
                 q_max = 4.0 * self.config.initial_human_workers
             
@@ -88,15 +90,34 @@ class JobMarket:
             
             output_target = max(1.0, output_target)
             
+            # Apply wage subsidy: reduces effective human cost for labor demand decision
+            effective_human_wage = firm.state.posted_wage_human
+            if getattr(self.config, 'wage_subsidy_enabled', False):
+                subsidy = getattr(self.config, 'wage_subsidy_amount', 0.0)
+                # Subsidy expressed as fraction of wage for comparability
+                effective_human_wage = max(0.05, effective_human_wage - subsidy * 0.001)
+            
             human_demand, ai_demand = firm.compute_labor_demand(
-                firm.state.posted_wage_human,
+                effective_human_wage,
                 firm.state.posted_cost_ai,
                 output_target
             )
             
+            # AI downsizing: if optimal AI demand is less than current, retire AI units
+            # (AI units are capital that can be decommissioned each period)
+            if ai_demand < firm.state.ai_workers_employed:
+                firm.state.ai_workers_employed = ai_demand
+            
             # Post NET openings (desired level minus current employment)
             human_openings = max(0, human_demand - firm.state.human_workers_employed)
-            ai_openings = max(0, ai_demand - firm.state.ai_workers_employed)
+            
+            # AI adoption is GRADUAL: firms can't instantly deploy unlimited AI.
+            # Reflects real-world frictions (integration, infrastructure, training).
+            ai_gap = max(0, ai_demand - firm.state.ai_workers_employed)
+            ai_adoption_speed = getattr(self.config, 'ai_adoption_speed', 0.05)
+            # Firms can add at most a fraction of the gap per period, minimum 1
+            max_ai_this_period = max(1, int(ai_gap * ai_adoption_speed))
+            ai_openings = min(ai_gap, max_ai_this_period)
             
             # Post human job openings
             if human_openings > 0:
